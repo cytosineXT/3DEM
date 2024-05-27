@@ -17,10 +17,9 @@ import torch.utils.data.dataloader as DataLoader
 import os
 import sys
 import re
-import trimesh
 import matplotlib.pyplot as plt
 from pathlib import Path
-from net.utils import increment_path, meshRCSDataset, get_logger, get_model_memory, psnr, ssim #, get_tensor_memory, transform_to_log_coordinates
+from net.utils import increment_path, meshRCSDataset, get_logger, get_model_memory, psnr, ssim, find_matching_files, process_files #, get_tensor_memory, transform_to_log_coordinates
 from NNvalfast import plotRCS2, plot2DRCS
 # from pytorch_memlab import profile, set_target_gpu
 
@@ -35,11 +34,11 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-batchsize = 1
+batchsize = 2
 epoch = 400
 use_preweight = True
 use_preweight = False
-cudadevice = 'cuda:1'
+cudadevice = 'cuda:0'
 
 threshold = 20
 learning_rate = 0.001  # 初始学习率
@@ -68,12 +67,11 @@ mses = []
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_ctrl9090_test10' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_test10'#T7920 test
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_pretrain'#T7920 pretrain
-rcsdir = r'/mnt/f/datasets/b827_test10' #305winwsl
+# rcsdir = r'/mnt/f/datasets/b827_test10' #305winwsl
+rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
 pretrainweight = r'./output/train/0521upconv3kan_b827_xiezhen2/last.pt' #T7920
-loadobj = r'./planes/b82731071bd39b66e4c15ad8a2edd2e.obj'
-loadpt = r'./planes/b82731071bd39b66e4c15ad8a2edd2e.pt'
 
-save_dir = str(increment_path(Path(ROOT / "output" / "test" /'0526upconv3kan_b827_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "test" /'0527upconv4_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 # save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0518upconv3L1_b827_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
@@ -90,11 +88,11 @@ logger.info(f'保存到{lastsavedir}')
 
 for file in tqdm(os.listdir(rcsdir),desc=f'数据集加载进度',ncols=100,postfix='后缀'):
     # print(file)
-    theta, phi, freq= re.search(r"RCSmap_theta(\d+)phi(\d+)f(\d.+).pt", file).groups()
+    plane, theta, phi, freq= re.search(r"([a-zA-Z0-9]{4})_theta(\d+)phi(\d+)f(\d.+).pt", file).groups()
     theta = int(theta)
     phi = int(phi)
     freq = float(freq)
-    in_em = [theta,phi,freq]
+    in_em = [plane,theta,phi,freq]
     # print(in_em)
     rcs = torch.load(os.path.join(rcsdir,file))
 
@@ -117,16 +115,6 @@ dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffl
 
 device = torch.device(cudadevice if torch.cuda.is_available() else "cpu")
 logger.info(f'device:{device}')
-
-mesh = trimesh.load_mesh(loadobj)
-planesur_face = torch.tensor(mesh.faces,dtype=int).unsqueeze(0).to(device)
-planesur_vert = torch.tensor(mesh.vertices,dtype=torch.float32).unsqueeze(0).to(device)
-planesur_faceedge = torch.load(loadpt).to(device)
-# if batchsize > 1 :
-#     planesur_face = planesur_face.repeat(batchsize, 1, 1)
-#     planesur_vert = planesur_vert.repeat(batchsize, 1, 1)
-#     planesur_faceedge = planesur_faceedge.repeat(batchsize, 1, 1)
-logger.info(f"物体：{loadobj}， verts={planesur_vert.shape}， faces={planesur_face.shape}， edge={planesur_faceedge.shape}")
 
 autoencoder = MeshAutoencoder( #这里实例化，是进去跑了init
     num_discrete_coors = 128,
@@ -162,16 +150,16 @@ for i in range(epoch):
     timeepoch = time.time()
     for in_em1,rcs1 in tqdm(dataloader,desc=f'epoch:{i+1},datasets进度,lr={scheduler.get_last_lr()[0]:.5f}',ncols=130,postfix=f'上一轮的epoch:{i},loss_mean:{(epoch_loss1/dataset.__len__()):.4f}'):
         optimizer.zero_grad()
-
-        face = planesur_face.repeat(in_em1.shape[0], 1, 1)
-        vert = planesur_vert.repeat(in_em1.shape[0], 1, 1)
-        edge = planesur_faceedge.repeat(in_em1.shape[0], 1, 1)
+        objlist , ptlist = find_matching_files(in_em1[0], "./planes")
+        planesur_faces, planesur_verts, planesur_faceedges, geoinfo = process_files(objlist, device)
+        # logger.info(f"物体：{objlist}， verts={planesur_verts.shape}， faces={planesur_faces.shape}， edge={planesur_faceedges.shape}")
 
         loss, outrcs, psnr_mean, _, ssim_mean, _, mse_mean = autoencoder( #这里使用网络，是进去跑了forward 
-            vertices = vert,
-            faces = face, #torch.Size([batchsize, 33564, 3])
-            face_edges = edge,
-            in_em = in_em1.to(device),
+            vertices = planesur_verts,
+            faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
+            face_edges = planesur_faceedges,
+            geoinfo = geoinfo, #[area, volume, scale]
+            in_em = in_em1,#.to(device)
             GT = rcs1.to(device), #这里放真值
             logger = logger,
             device = device
@@ -181,8 +169,8 @@ for i in range(epoch):
             loss=loss.sum()
             loss.backward() #这一步很花时间，但是没加optimizer是白给的
         else:
-            outem = [int(in_em1[0][0]), int(in_em1[0][1]), float(f'{in_em1[0][2]:.3f}')]
-            tqdm.write(f'em:{outem},loss:{loss.item():.4f}')
+            # outem = [int(in_em1[0][0]), int(in_em1[0][1]), float(f'{in_em1[0][2]:.3f}')]
+            # tqdm.write(f'em:{outem},loss:{loss.item():.4f}')
             loss.backward()
         epoch_loss=epoch_loss + loss.item()
         torch.nn.utils.clip_grad_norm_(autoencoder.parameters(), max_norm=threshold)
@@ -198,12 +186,12 @@ for i in range(epoch):
             # print(f'rcs:{outrcs.shape},em:{in_em1}in{in_em1.shape}')
             # print(f'rcs0{outrcs[0]==outrcs[0,:]}')
             drawrcs = outrcs[0]
-            drawem = in_em1[0]
+            drawem = torch.stack(in_em1[1:]).t()[0]
             drawGT = rcs1[0]
             flag = 0
-        for j in range(in_em1.shape[0]):
+        for j in range(torch.stack(in_em1[1:]).t().shape[0]):
             # print(f'em:{in_em1[0]},drawem:{drawem}')
-            if flag == 0 and torch.equal(in_em1[j], drawem):
+            if flag == 0 and torch.equal(torch.stack(in_em1[1:]).t()[j], drawem):
                 drawrcs = outrcs[j]
                 break
                 # print(drawrcs.shape)

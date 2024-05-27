@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 import logging
 import numpy as np
+import trimesh
 
 def ssim(img1, img2, window_size=11, size_average=True):
     img1 = img1.unsqueeze(1) # [batch_size, 1, height, width]
@@ -126,6 +127,78 @@ class meshRCSDataset(Dataset.Dataset):
     def __len__(self):    #返回数据集大小
         return len(self.meshdata)
     def __getitem__(self, index):    #得到数据内容和标签
-        meshdata = torch.Tensor(self.meshdata[index])
+        # meshdata = torch.Tensor(self.meshdata[index])
+        meshdata = self.meshdata[index]
         RCSmap = torch.Tensor(self.RCSmap[index])
         return meshdata, RCSmap
+    
+def find_matching_files(prefixlist, directory):
+    objlist = []
+    ptlist = []
+    for prefix in prefixlist:
+        for filename in os.listdir(directory):
+            if filename[:4]== prefix:
+                plane = filename[:-4]
+                loadobj = plane + '.obj'
+                loadpt = plane + '.pt'
+                objlist.append(os.path.join(directory, loadobj))
+                ptlist.append(os.path.join(directory, loadpt))
+                break
+    return objlist , ptlist
+
+
+def load_and_process(file_path):
+    """
+    读取并处理单个文件，返回faces, verts, faceedge张量。
+    """
+    mesh = trimesh.load_mesh(file_path)
+    area = mesh.area
+    volume = mesh.volume
+    scale = mesh.scale
+    faces = torch.tensor(mesh.faces, dtype=torch.int).unsqueeze(0)
+    verts = torch.tensor(mesh.vertices, dtype=torch.float32).unsqueeze(0)
+    pt_path = file_path.replace('.obj', '.pt')
+    faceedge = torch.load(pt_path)
+    return faces, verts, faceedge, [area, volume, scale]
+
+def process_files(file_paths, device='cpu'):
+    """
+    处理一组文件并返回批量张量。
+    
+    Args:
+    - file_paths (list of str): 文件路径列表。
+    - device (str or torch.device): 使用的设备，默认为'cpu'。
+    
+    Returns:
+    - planesur_faces (torch.Tensor): faces批量张量。
+    - planesur_verts (torch.Tensor): verts批量张量。
+    - planesur_faceedges (torch.Tensor): faceedges批量张量。
+    """
+    # 设置设备
+    device = torch.device(device if isinstance(device, str) else device)
+
+    # 读取所有文件并合并到batch
+    faces_list, verts_list, faceedges_list, geoinfo_list = [], [], [], []
+    for file_path in file_paths:
+        faces, verts, faceedge, geoinfo = load_and_process(file_path)
+        faces_list.append(faces)
+        verts_list.append(verts)
+        faceedges_list.append(faceedge)
+        geoinfo_list.append(geoinfo)
+
+    # 找到需要填充到的最大大小
+    max_faces_size = max(f.shape[1] for f in faces_list)
+    max_verts_size = max(v.shape[1] for v in verts_list)
+    max_faceedges_size = max(fe.shape[1] for fe in faceedges_list)
+
+    # 填充所有张量到相同大小
+    padded_faces_list = [F.pad(f, (0, 0, 0, max_faces_size - f.shape[1])) for f in faces_list]
+    padded_verts_list = [F.pad(v, (0, 0, 0, max_verts_size - v.shape[1])) for v in verts_list]
+    padded_faceedges_list = [F.pad(fe, (0, 0, 0, max_faceedges_size - fe.shape[1])) for fe in faceedges_list]
+
+    # 合并到batch
+    planesur_faces = torch.cat(padded_faces_list, dim=0).to(device)
+    planesur_verts = torch.cat(padded_verts_list, dim=0).to(device)
+    planesur_faceedges = torch.cat(padded_faceedges_list, dim=0).to(device)
+
+    return planesur_faces, planesur_verts, planesur_faceedges, geoinfo_list

@@ -33,7 +33,7 @@ from taylor_series_linear_attention import TaylorSeriesLinearAttn
 from torch_geometric.nn.conv import SAGEConv
 from gateloop_transformer import SimpleGateLoopLayer
 import numpy as np
-from net.kan import KAN
+from net.kan2 import KAN
 
 def total_variation(images):
     ndims = images.dim()
