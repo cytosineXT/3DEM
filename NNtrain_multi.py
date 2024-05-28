@@ -34,11 +34,11 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-batchsize = 2
-epoch = 400
+batchsize = 16
+epoch = 200
 use_preweight = True
 use_preweight = False
-cudadevice = 'cuda:0'
+cudadevice = 'cuda:1'
 
 threshold = 20
 learning_rate = 0.001  # 初始学习率
@@ -60,18 +60,20 @@ psnrs = []
 ssims = []
 mses = []
 
-# rcsdir = r"/mnt/Disk/jiangxiaotian/puredatasets/b82731071bd39b66e4c15ad8a2edd2e" #T7920 
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_test10' #T7920 
+rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOpt' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_MieOpt' #T7920 
+# rcsdir = r"/mnt/Disk/jiangxiaotian/puredatasets/b82731071bd39b66e4c15ad8a2edd2e" #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_val' #T7920 1300个
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_ctrl9090_test10' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_test10'#T7920 test
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_pretrain'#T7920 pretrain
 # rcsdir = r'/mnt/f/datasets/b827_test10' #305winwsl
-rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
+# rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
 pretrainweight = r'./output/train/0521upconv3kan_b827_xiezhen2/last.pt' #T7920
 
-save_dir = str(increment_path(Path(ROOT / "output" / "test" /'0527upconv4_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0528upconv4_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 # save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0518upconv3L1_b827_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
@@ -182,10 +184,12 @@ for i in range(epoch):
         mse_list.append(mse_mean)
         
     #-----------------------------------定期作图看效果小模块-------------------------------------------
+        in_em1[1:] = [tensor.to(device) for tensor in in_em1[1:]]
         if flag == 1:
             # print(f'rcs:{outrcs.shape},em:{in_em1}in{in_em1.shape}')
             # print(f'rcs0{outrcs[0]==outrcs[0,:]}')
             drawrcs = outrcs[0]
+            # drawem = torch.stack(in_em1[1:]).t()[0]
             drawem = torch.stack(in_em1[1:]).t()[0]
             drawGT = rcs1[0]
             flag = 0
