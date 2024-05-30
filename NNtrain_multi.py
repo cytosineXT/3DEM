@@ -5,11 +5,6 @@
 import torch
 import time
 from tqdm import tqdm
-# from net.jxtnet_padding2w import MeshAutoencoder
-# from net.jxtnet_upConv2_piloss import MeshAutoencoder
-# from net.jxtnet_upConv3 import MeshAutoencoder
-# from net.jxtnet_upConv3_L1loss_TV import MeshAutoencoder
-# from net.jxtnet_upConv3_L1 import MeshAutoencoder
 from net.jxtnet_upConv4 import MeshAutoencoder
 import torch.utils.data.dataloader as DataLoader
 # from torch.nn.parallel import DistributedDataParallel as DDP
@@ -34,10 +29,10 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-batchsize = 16
+batchsize = 10
 epoch = 200
 use_preweight = True
-use_preweight = False
+# use_preweight = False
 cudadevice = 'cuda:1'
 
 threshold = 20
@@ -60,8 +55,10 @@ psnrs = []
 ssims = []
 mses = []
 
+rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_test10' #T7920 
-rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOpt' #T7920 
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOpt' #T7920 
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOptpretrain' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_MieOpt' #T7920 
 # rcsdir = r"/mnt/Disk/jiangxiaotian/puredatasets/b82731071bd39b66e4c15ad8a2edd2e" #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen' #T7920 
@@ -71,9 +68,9 @@ rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOpt' #T7920
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_pretrain'#T7920 pretrain
 # rcsdir = r'/mnt/f/datasets/b827_test10' #305winwsl
 # rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
-pretrainweight = r'./output/train/0521upconv3kan_b827_xiezhen2/last.pt' #T7920
+pretrainweight = r'./output/train/0529upconv4ffc_MieOptpretrain3/last.pt' #T7920
 
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0528upconv4_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0530upconv4ffc_mul26test100_'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 # save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0518upconv3L1_b827_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
@@ -116,6 +113,7 @@ dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffl
 # print('数据集加载完成，耗时:',time.strftime("%H:%M:%S", time.gmtime(end_timedata-start_timedata)))
 
 device = torch.device(cudadevice if torch.cuda.is_available() else "cpu")
+device = 'cpu'
 logger.info(f'device:{device}')
 
 autoencoder = MeshAutoencoder( #这里实例化，是进去跑了init

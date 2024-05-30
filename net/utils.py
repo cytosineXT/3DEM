@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import logging
 import numpy as np
 import trimesh
+from net.data import derive_face_edges_from_faces
 
 def ssim(img1, img2, window_size=11, size_average=True):
     img1 = img1.unsqueeze(1) # [batch_size, 1, height, width]
@@ -158,7 +159,15 @@ def load_and_process(file_path):
     faces = torch.tensor(mesh.faces, dtype=torch.int).unsqueeze(0)
     verts = torch.tensor(mesh.vertices, dtype=torch.float32).unsqueeze(0)
     pt_path = file_path.replace('.obj', '.pt')
-    faceedge = torch.load(pt_path)
+    # faceedge = torch.load(pt_path)
+    if os.path.exists(pt_path):
+        faceedge = torch.load(pt_path)
+    else:
+        # faceedge = pt_path
+        print('正在生成edge')
+        faceedge = derive_face_edges_from_faces(faces, pad_id = -1)
+        torch.save(faceedge, pt_path)
+        print(f'已生成edge并保存到{pt_path}')
     return faces, verts, faceedge, [area, volume, scale]
 
 def process_files(file_paths, device='cpu'):
@@ -202,3 +211,4 @@ def process_files(file_paths, device='cpu'):
     planesur_faceedges = torch.cat(padded_faceedges_list, dim=0).to(device)
 
     return planesur_faces, planesur_verts, planesur_faceedges, geoinfo_list
+

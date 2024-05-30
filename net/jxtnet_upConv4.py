@@ -721,7 +721,7 @@ class MeshAutoencoder(Module):
         #----------------------------------------------------jxt decoder----------------------------------------------------------
         self.conv1d1 = nn.Conv1d(785, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
         # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
-        # self.fc1d1 = nn.Linear(2250, middim*45*90)
+        self.fc1d1 = nn.Linear(2250, middim*45*90)
         self.kan1 = KAN([2250,64,middim*45*90],device=device)
         # Decoder3
         self.upconv1 = nn.ConvTranspose2d(middim, int(middim/2), kernel_size=2, stride=2)
@@ -992,12 +992,13 @@ class MeshAutoencoder(Module):
         ln_emfreq = in_em[3].clone()
         mixfreqgeo = torch.cat([geoinfo, in_em[3].unsqueeze(1)], dim=1).float()
         # mixfreqgeo = torch.Tensor([sublist + value for sublist, value in zip(geoinfo, in_em[3])]) #torch.size=([batchsize,4])
-        # incident_freq_mtx=self.enfc0(mixfreqgeo) #为啥换成fc之后也没有grad。。看来不是kan的问题
-        incident_freq_mtx=self.enkan0(mixfreqgeo)
+        incident_freq_mtx=self.enfc0(mixfreqgeo) #为啥换成fc之后也没有grad。。看来不是kan的问题
+        # incident_freq_mtx=self.enkan0(mixfreqgeo)
         kan_emfreq = incident_freq_mtx.clone()
-        incident_freq_mtx=torch.sigmoid(incident_freq_mtx)
+        # incident_freq_mtx=torch.sigmoid(incident_freq_mtx) #不用0到1了 就把sigmoid给去了
         # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}')
-        logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，KAN后归一化电尺度{kan_emfreq}，sigmoid后{incident_freq_mtx}')
+        # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，KAN后归一化电尺度{kan_emfreq}，sigmoid后{incident_freq_mtx}')
+        logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，fc后归一化电尺度{kan_emfreq[0]}，sigmoid后{incident_freq_mtx[0]}')
         # geomtx = (torch.Tensor(geoinfo).unsqueeze(1).expand(-1, area.shape[1], -1)).to(device)
 
         #输出torch.Size([2, 20804, 3, 3])  tensor([-0.4463, -0.0323, -0.0037], device='cuda:0') 成功！
@@ -1248,10 +1249,10 @@ class MeshAutoencoder(Module):
         x = self.conv1d1(x)
         # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
 
-        x = x.squeeze(1)
-        x = self.kan1(x)
-        x = x.unsqueeze(1)
-        # x = self.fc1d1(x)
+        # x = x.squeeze(1)
+        # x = self.kan1(x)
+        # x = x.unsqueeze(1)
+        x = self.fc1d1(x)
         # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
 
         x = x.view(x.size(0), -1, 45, 90)
@@ -1319,8 +1320,13 @@ class MeshAutoencoder(Module):
         device
     ):
         ticc = time.time()
-        if not exists(face_edges):
-            face_edges = derive_face_edges_from_faces(faces, pad_id = self.pad_id)
+        # if isinstance(face_edges, str):
+        #     pt_path = face_edges
+        #     face_edges = derive_face_edges_from_faces(faces, pad_id = self.pad_id)
+        #     torch.save(face_edges, pt_path)  # 保存生成的 face_edges 以便下次直接加载
+        # if not exists(face_edges):
+        #     face_edges = derive_face_edges_from_faces(faces, pad_id = self.pad_id)
+        #     torch.save(face_edges, face_edges)  # 保存生成的 face_edges 以便下次直接加载
 
         # num_faces, num_face_edges, device = faces.shape[1], face_edges.shape[1], faces.device
 
