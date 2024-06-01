@@ -1,4 +1,6 @@
-# torchrun --nproc_per_node=2 NNtrain_mulDDP2.py
+# torchrun --nproc_per_node=1 NNtrain_mulDDP2.py
+#SCREEN ctrl+D删除 ctrl+AD关闭 screen -S name创建 screen -r name回复 screen -ls查看list
+#tmux attach -t name恢复 
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -17,10 +19,13 @@ import signal
 import datetime
 
 def setup(rank, world_size):
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    # nprocs=world_size
+    # os.environ['MASTER_ADDR'] = 'localhost'
+    # os.environ['MASTER_PORT'] = '12356'
     print(f"Initializing process group for rank {rank}, worldsize{world_size}")
-    dist.init_process_group(backend="gloo", rank=rank, world_size=world_size, timeout=datetime.timedelta(seconds=20)) #草 卡在这步了
+    dist.init_process_group(backend="nccl",init_method="file:///tmp/torch_sharedfile" ,rank=rank, world_size=world_size, timeout=datetime.timedelta(minutes=1)) #草 卡在这步了
+    # dist.init_process_group(backend="gloo", rank=rank, world_size=world_size, timeout=datetime.timedelta(seconds=20)) #草 卡在这步了
+    # dist.init_process_group(backend="mpi", rank=rank, world_size=world_size, timeout=datetime.timedelta(seconds=20)) #草 卡在这步了
     print(f"Process group initialized for rank {rank}")
     # dist.init_process_group("gloo", rank=rank, world_size=world_size)
     # dist.init_process_group("nccl", rank=rank, world_size=world_size)
@@ -80,6 +85,17 @@ def main(rank, world_size):
     mses = []
 
     rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100'
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_test10' #T7920 
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOpt' #T7920 
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOptpretrain' #T7920 
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_MieOpt' #T7920 
+    # rcsdir = r"/mnt/Disk/jiangxiaotian/puredatasets/b82731071bd39b66e4c15ad8a2edd2e" #T7920 
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen' #T7920 
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_val' #T7920 1300个
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_ctrl9090_test10' #T7920 
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_test10'#T7920 test
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_pretrain'#T7920 pretrain
+    # rcsdir = r'/mnt/f/datasets/b827_test10' #305winwsl
     # rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
     pretrainweight = r'./output/train/0529upconv4ffc_MieOptpretrain3/last.pt' #T7920
     
@@ -276,3 +292,23 @@ if __name__ == "__main__":
     world_size = torch.cuda.device_count()
     # world_size = 1
     torch.multiprocessing.spawn(main, args=(world_size,), nprocs=world_size, join=True)
+
+#2024年4月2日22:25:07 终于从头到尾跟着跑完了一轮 明天开始魔改！
+#2024年4月6日17:24:56 encoder和decoder加入了EM因素，NN魔改完成，接下来研究如何训练。
+#2024年4月6日18:13:55 loss.backward optimizer .to(device)搞定，循环已开始，接下来研究如何dataloader
+#2024年4月15日22:16:57 dataset dataloader mydecoder MSEloss搞定，循环+遍历数据集已开始，jxt史上第一个手搓NN正式开始训练！
+#2024年4月17日20:43:23 多gpu DP(但是有loss全0 NAN inf的bug) 训练日志epoch平均loss搞定 但是loss为什么训练起来好像没什么效果呢
+#2024年4月20日19:37:17 能实现loss训练了，但是训练的速度太慢了，一个21000大小的数据集epoch要10h，训练完到loss变小的得一个月多。感觉还是得实现多卡，下次试试DistributedDataParallel，增大batchsize到4用P40跑试试看。
+#2024年4月23日15:36:54 实现了torch.load，能从以前训练的checkpoint接着训练了，这样就能解决数据集不能一次读完的问题。DDP不大行，手搓并发好多毛病，虽然离完美只一步之遥，但是应只用一张3090跑，没必要，等要的时候再说。
+#2024年4月30日22:06:57 实现了upconv的NN Decoder设计，重新梳理了RCS和obj数据，实现更换飞机obj的代码和3Drcs结果绘图的代码，并且按计划用第一架飞机的谐振区14000数据训练。下一步看看encoder是哪里耗时间，能否优化。
+#2024年5月1日18:57:04 实现了upconvde的NN Encoder加速，替换掉了爱因斯坦求和规则等，加速了十倍左右！新的代码位于jxtnet_upconv_deencoder.py中。还尝试debug了多batchsize训练，应该好了，但是因为显存问题和zx冲突，等他跑完了我再试试：如果最后loss不报大小不一的错，且值不会比为1时小一倍，说明没问题！我草刚好一个月
+#2024年5月5日23:56:53 首先完成了多batch训练；其次修改了decoder，去掉了其中的BN和Relu，然后将loss改为了sum
+#2024年5月6日13:03:08 修改了主体训练代码，实现了best权重存储，实现了losses结果图保存；修改了decoder，在梯度裁剪的操作下把loss成功用sum训练了！虽然是过拟合但是还是得到了很不错的效果！loss从数十万降至三万，结果图/home/ljm/workspace/jxt/jxtnet/output/inference/0506_b827_theta90phi330freq0.9_1w4W_nobn.png也证明其实是能学到的！看了一下大概400轮一直在慢慢降。看看如何把loss优化，加入相邻角度连续变化的先验，让生成的图是光滑的
+#2024年5月7日17:35:23 实现了losses图随轮更新的效果。实现了datasets的削减和整理，新的data目前在任服务器puredatasets文件夹中。
+#2024年5月8日18:33:16 采用了新的库画3D图，单张图由1分钟降为10秒左右。在jxtnet_upConv_piloss.py中尝试往loss中加入平滑惩罚，然后加上了relu非线性层（发现不会影响网络权重），并且尝试改梯度裁剪的thershold为20试图实现更精细的梯度下降权重优化（效果应该等效于调小lr，只不过是特别针对RCS值大的突出部分），但是loss平滑惩罚还未成功？？？虽然不报错但是好像也没啥效果。把数据集整理了一下，补漏+对称翻倍+裁剪成RCSnp保存，等最后一批处理完，就可以搬到T7920上用新的数据训练了！
+#2024年5月9日22:04:27 今天把新数据用上，开始跑新的；然后把网络结构又改了一下，参考segnet维度留多点 给1D和2D都加了BN和Relu 然后最后1x1卷积；还加上了学习率调度器，用的指数/余弦衰减调度。把批量推理写了，司马了，大数据训30轮效果根本不行，10个数据训800轮还只是勉强，司马了，这样真不行，还得1优化训练速度！！2用小样本能loss训练成0了再来上大数据！！可以先帮网络控制变量，并直接把结果矩阵x2，看样子好像能好点，明天试试。
+#2024年5月10日10:42:49 控制变量训练、结果矩阵x2;实现了第i整数倍轮画图看效果。plan：shapenet飞机训练，分成两个网络（3个模块）；把角度信息再卷一次强调一次，可能是进了decoder后角度信息都卷的不成样子了，所以再用eg3d的conditioning强调一次感觉会很不错:最后把encoder里的em_embedding拿过来在decoder里又和x concat了一下，让入射角度和频率信息在decoder里强调了一次。确实loss就从之前48万死活下不来下探到二十几万了，还在下降，看看能不能掌握方向性。是不是测试样本太少的原因，我要先不等训完800轮用这个val一遍本数据集，然后训中数据集ctrl9090，然后验ctrl9090_val。
+#2024年5月11日15:13:06 采用logger记录日志；de了emfreq离散的bug；条件控制修改：angle conditioning+freq conditioning。
+#2024年5月15日14:01:46 重大突破！！1.加了线性层，结果显著，新称conv3 2.改进了smoothloss 并添加了中值滤波+高斯滤波后处理
+#2024年5月18日11:00:14 实现了SSIM和PSNR指标 解决了多batchsize的bug，现用batchsize=8训练！ 修改了L1loss 加了mse指标 de了一下午晚上的bug我草真逆天 不能同时用nn.mseloss和nn.l1loss、不全是grad的影响，太逆天了，最后采用手搓mse。 准备实现TV全变分正则化
+#2024年5月30日20:49:32 实现了DDP。已实现conv4版本 加入了跨飞机代码(encoder Ka)。
