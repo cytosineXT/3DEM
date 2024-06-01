@@ -5,7 +5,8 @@
 import torch
 import time
 from tqdm import tqdm
-from net.jxtnet_upConv4 import MeshAutoencoder
+from net.jxtnet_upConv4_fcKAN import MeshAutoencoder
+# from net.jxtnet_upConv4 import MeshAutoencoder
 import torch.utils.data.dataloader as DataLoader
 # from torch.nn.parallel import DistributedDataParallel as DDP
 # from torch.nn.parallel import DataParallel as DP
@@ -29,10 +30,10 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-batchsize = 10
+batchsize = 1
 epoch = 200
 use_preweight = True
-# use_preweight = False
+use_preweight = False
 cudadevice = 'cuda:0'
 
 threshold = 20
@@ -56,8 +57,8 @@ ssims = []
 mses = []
 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt' #T7920 
-# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100' #T7920 
-rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_test10' #T7920 
+rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100' #T7920 
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_test10' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOpt' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOptpretrain' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_MieOpt' #T7920 

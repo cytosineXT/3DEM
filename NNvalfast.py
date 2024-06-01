@@ -23,22 +23,6 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-# def inference(weight, in_obj, in_em, GT, logger,device):
-#     start_time0 = time.time()
-#     loss, outrcs, _, psnrlist, _, ssimlist, mse = autoencoder( #这里使用网络，是进去跑了forward
-#         vertices = planesur_verts,
-#         faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
-#         face_edges = planesur_faceedges,
-#         geoinfo = geoinfo, #[area, volume, scale]
-#         in_em = in_em1,#.to(device)
-#         GT = rcs1.to(device), #这里放真值
-#         logger = logger,
-#         device = device
-#     )
-#     # torch.cuda.empty_cache()
-#     logger.info(f'\n推理用时：{time.time()-start_time0:.4f}s')
-#     return loss, outrcs, psnrlist, ssimlist, mse
-
 def plotRCS2(rcs,savedir,logger):
     import numpy as np
     import plotly.graph_objects as go
@@ -182,10 +166,10 @@ if __name__ == '__main__':
             outGTpngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_GT.png')
             out2DGTpngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_2DGT.png')
             logger.info(out2Drcspngpath)
-            # plotRCS2(rcs=outrcs, savedir=outrcspngpath, logger=logger) #ValueError: operands could not be broadcast together with shapes (1,361,720) (1,361)
-            # plot2DRCS(rcs=outrcs, gesavedir=out2Drcspngpath, logger=logger) #ValueError: operands could not be broadcast together with shapes (1,361,720) (1,361)
-            # plotRCS2(rcs=rcs1, savedir=outGTpngpath, logger=logger) #r'./output/inference/b827_theta90phi330freq0.9GT_1w4weight.png'
-            # plot2DRCS(rcs=rcs1, savedir=out2DGTpngpath, logger=logger) #r'./output/inference/b827_theta90phi330freq0.9GT_1w4weight.png'
+            plotRCS2(rcs=outrcs, savedir=outrcspngpath, logger=logger) #ValueError: operands could not be broadcast together with shapes (1,361,720) (1,361)
+            plot2DRCS(rcs=outrcs, savedir=out2Drcspngpath, logger=logger) #ValueError: operands could not be broadcast together with shapes (1,361,720) (1,361)
+            plotRCS2(rcs=rcs1, savedir=outGTpngpath, logger=logger) #r'./output/inference/b827_theta90phi330freq0.9GT_1w4weight.png'
+            plot2DRCS(rcs=rcs1, savedir=out2DGTpngpath, logger=logger) #r'./output/inference/b827_theta90phi330freq0.9GT_1w4weight.png'
             torch.cuda.empty_cache()
             losses.append(loss)
             psnrs.append(psnrlist.item())
