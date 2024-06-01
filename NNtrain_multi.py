@@ -33,7 +33,7 @@ batchsize = 10
 epoch = 200
 use_preweight = True
 # use_preweight = False
-cudadevice = 'cuda:1'
+cudadevice = 'cuda:0'
 
 threshold = 20
 learning_rate = 0.001  # 初始学习率
@@ -55,8 +55,9 @@ psnrs = []
 ssims = []
 mses = []
 
-rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100' #T7920 
-# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_test10' #T7920 
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt' #T7920 
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100' #T7920 
+rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_test10' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOpt' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOptpretrain' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_MieOpt' #T7920 
@@ -68,9 +69,9 @@ rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100' #T7920
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_pretrain'#T7920 pretrain
 # rcsdir = r'/mnt/f/datasets/b827_test10' #305winwsl
 # rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
-pretrainweight = r'./output/train/0529upconv4ffc_MieOptpretrain3/last.pt' #T7920
+pretrainweight = r'./output/train/0530upconv4ffc_mul26test100_/last.pt' #T7920
 
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0530upconv4ffc_mul26test100_'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "test" /'0601upconv4ffc_mul26_'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 # save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0518upconv3L1_b827_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
@@ -113,7 +114,7 @@ dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffl
 # print('数据集加载完成，耗时:',time.strftime("%H:%M:%S", time.gmtime(end_timedata-start_timedata)))
 
 device = torch.device(cudadevice if torch.cuda.is_available() else "cpu")
-device = 'cpu'
+# device = 'cpu'
 logger.info(f'device:{device}')
 
 autoencoder = MeshAutoencoder( #这里实例化，是进去跑了init
@@ -190,6 +191,7 @@ for i in range(epoch):
             # drawem = torch.stack(in_em1[1:]).t()[0]
             drawem = torch.stack(in_em1[1:]).t()[0]
             drawGT = rcs1[0]
+            drawplane = in_em1[0]
             flag = 0
         for j in range(torch.stack(in_em1[1:]).t().shape[0]):
             # print(f'em:{in_em1[0]},drawem:{drawem}')
@@ -201,15 +203,15 @@ for i in range(epoch):
     s = ssim(drawrcs.to(device), drawGT.to(device))
     m = torch.nn.functional.mse_loss(drawrcs.to(device), drawGT.to(device))
     if GTflag == 1:
-        outGTpngpath = os.path.join(save_dir,f'theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_GT.png')
-        out2DGTpngpath = os.path.join(save_dir,f'theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_2DGT.png')
+        outGTpngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_GT.png')
+        out2DGTpngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_2DGT.png')
         plotRCS2(rcs=drawGT, savedir=outGTpngpath, logger=logger)
         plot2DRCS(rcs=drawGT, savedir=out2DGTpngpath, logger=logger)
         GTflag = 0
         logger.info('已画GT图')
     if i == 0 or i % 20 == 0: #存指定倍数轮时画某张图看训练效果
-        outrcspngpath = os.path.join(save_dir,f'theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}.png')
-        out2Drcspngpath = os.path.join(save_dir,f'theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}_psnr{p.item():.2f}_ssim{s.item():.4f}_mse{m:.4f}_2D.png')
+        outrcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}.png')
+        out2Drcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}_psnr{p.item():.2f}_ssim{s.item():.4f}_mse{m:.4f}_2D.png')
         plotRCS2(rcs=drawrcs, savedir=outrcspngpath, logger=logger)
         plot2DRCS(rcs=drawrcs, savedir=out2Drcspngpath, logger=logger)
         logger.info(f'已画{i}轮图')

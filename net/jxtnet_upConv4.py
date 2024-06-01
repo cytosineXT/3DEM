@@ -998,7 +998,8 @@ class MeshAutoencoder(Module):
         # incident_freq_mtx=torch.sigmoid(incident_freq_mtx) #不用0到1了 就把sigmoid给去了
         # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}')
         # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，KAN后归一化电尺度{kan_emfreq}，sigmoid后{incident_freq_mtx}')
-        logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，fc后归一化电尺度{kan_emfreq[0]}，sigmoid后{incident_freq_mtx[0]}')
+        # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，fc后归一化电尺度{kan_emfreq[0]}，sigmoid后{incident_freq_mtx[0]}')
+        logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，fc后归一化电尺度{kan_emfreq[0]}')
         # geomtx = (torch.Tensor(geoinfo).unsqueeze(1).expand(-1, area.shape[1], -1)).to(device)
 
         #输出torch.Size([2, 20804, 3, 3])  tensor([-0.4463, -0.0323, -0.0037], device='cuda:0') 成功！

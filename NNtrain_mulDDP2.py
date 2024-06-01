@@ -20,7 +20,7 @@ def setup(rank, world_size):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12355'
     print(f"Initializing process group for rank {rank}, worldsize{world_size}")
-    dist.init_process_group(backend="nccl", rank=rank, world_size=world_size, timeout=datetime.timedelta(seconds=20)) #草 卡在这步了
+    dist.init_process_group(backend="gloo", rank=rank, world_size=world_size, timeout=datetime.timedelta(seconds=20)) #草 卡在这步了
     print(f"Process group initialized for rank {rank}")
     # dist.init_process_group("gloo", rank=rank, world_size=world_size)
     # dist.init_process_group("nccl", rank=rank, world_size=world_size)
@@ -53,7 +53,7 @@ def main(rank, world_size):
         sys.path.append(str(ROOT))  # add ROOT to PATH
     ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-    batchsize = 8
+    batchsize = 2
     epoch = 200
     use_preweight = True
     use_preweight = False
@@ -79,8 +79,8 @@ def main(rank, world_size):
     ssims = []
     mses = []
 
-    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100'
-    rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
+    rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100'
+    # rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
     pretrainweight = r'./output/train/0529upconv4ffc_MieOptpretrain3/last.pt' #T7920
     
     save_dir = str(increment_path(Path(ROOT / "output" / "test" / '0530upconv4ffc_DDP'), exist_ok=False))
@@ -274,4 +274,5 @@ def main(rank, world_size):
 
 if __name__ == "__main__":
     world_size = torch.cuda.device_count()
+    # world_size = 1
     torch.multiprocessing.spawn(main, args=(world_size,), nprocs=world_size, join=True)

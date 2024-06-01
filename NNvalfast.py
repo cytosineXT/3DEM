@@ -1,19 +1,20 @@
 import torch
 import time
-from net.jxtnet_upConv3_KAN_TV import MeshAutoencoder
+from net.jxtnet_upConv4 import MeshAutoencoder
+# from net.jxtnet_upConv3_KAN_TV import MeshAutoencoder
 # from net.jxtnet_upConv3 import MeshAutoencoder
 # from net.jxtnet_upConv2_piloss import MeshAutoencoder
 # from net.jxtnet_upConv_deendocer import MeshAutoencoder
-from net.utils import increment_path, meshRCSDataset, get_logger
+from net.utils import increment_path, meshRCSDataset, get_logger, find_matching_files, process_files
 import torch.utils.data.dataloader as DataLoader
-import trimesh
+# import trimesh
 from pathlib import Path
 import sys
 import os
 from tqdm import tqdm
 import re
 
-cuda = 'cuda:1'
+cuda = 'cuda:0'
 device = torch.device(cuda if torch.cuda.is_available() else "cpu")
 
 FILE = Path(__file__).resolve()
@@ -22,20 +23,21 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-def inference(weight, in_obj, in_em, GT, logger,device):
-    start_time0 = time.time()
-    loss, outrcs, _, psnrlist, _, ssimlist, mse = autoencoder( #这里使用网络，是进去跑了forward
-        vertices = planesur_vert,
-        faces = planesur_face, #torch.Size([batchsize, 33564, 3])
-        face_edges = planesur_faceedge,
-        in_em = in_em.to(device),
-        GT = GT.to(device),
-        logger = logger,
-        device = device
-    )
-    # torch.cuda.empty_cache()
-    logger.info(f'\n推理用时：{time.time()-start_time0:.4f}s')
-    return loss, outrcs, psnrlist, ssimlist, mse
+# def inference(weight, in_obj, in_em, GT, logger,device):
+#     start_time0 = time.time()
+#     loss, outrcs, _, psnrlist, _, ssimlist, mse = autoencoder( #这里使用网络，是进去跑了forward
+#         vertices = planesur_verts,
+#         faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
+#         face_edges = planesur_faceedges,
+#         geoinfo = geoinfo, #[area, volume, scale]
+#         in_em = in_em1,#.to(device)
+#         GT = rcs1.to(device), #这里放真值
+#         logger = logger,
+#         device = device
+#     )
+#     # torch.cuda.empty_cache()
+#     logger.info(f'\n推理用时：{time.time()-start_time0:.4f}s')
+#     return loss, outrcs, psnrlist, ssimlist, mse
 
 def plotRCS2(rcs,savedir,logger):
     import numpy as np
@@ -95,14 +97,16 @@ if __name__ == '__main__':
 
     # weight = r'./output/test/0509upconv2_b827_001lr6/best2w.pt'
     # weight = r'./output/test/0514upconv2_b827_10/last.pt'
-    weight = r'./output/train/0521upconv3kan_b827_xiezhen2/best.pt'
+    weight = r'./output/train/0531upconv4ffc_mul26_/best.pt'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_ctrl9090_val'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_test10'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/datasets/b827_xiezhen_small'
-    rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_val'
-    in_obj = 'b82731071bd39b66e4c15ad8a2edd2e'
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_val'
+    rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_val'
 
-    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /'0522_upconv3kan_xiezhenval'), exist_ok=False))
+    # in_obj = 'b82731071bd39b66e4c15ad8a2edd2e'
+
+    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /'0601_upconv4_mul26_'), exist_ok=False))
     # pngsavedir = os.path.join(save_dir,'0508_b827_theta90phi330freq0.9_4w_sm.png')
     logdir = os.path.join(save_dir,'alog.txt')
     logger = get_logger(logdir)
@@ -117,11 +121,11 @@ if __name__ == '__main__':
     losses = []
     for file in tqdm(os.listdir(rcsdir),desc=f'数据集加载进度',ncols=100,postfix='后缀'):
         # print(file)
-        theta, phi, freq= re.search(r"RCSmap_theta(\d+)phi(\d+)f(\d.+).pt", file).groups()
+        plane, theta, phi, freq= re.search(r"([a-zA-Z0-9]{4})_theta(\d+)phi(\d+)f(\d.+).pt", file).groups()
         theta = int(theta)
         phi = int(phi)
         freq = float(freq)
-        in_em = [theta,phi,freq]
+        in_em = [plane,theta,phi,freq]
         # print(in_em)
         rcs = torch.load(os.path.join(rcsdir,file))
         in_ems.append(in_em)
@@ -133,41 +137,55 @@ if __name__ == '__main__':
 
     #-------------------------------------------------------------------------------------
     logger.info(f'device:{device}')
-    loadobj = os.path.join(ROOT/'planes'/f'{in_obj}.obj')
-    loadpt = os.path.join(ROOT/'planes'/f'{in_obj}.pt')
-    mesh = trimesh.load_mesh(loadobj)
-    planesur_face = torch.tensor(mesh.faces,dtype=int).unsqueeze(0).to(device)
-    planesur_vert = torch.tensor(mesh.vertices,dtype=torch.float32).unsqueeze(0).to(device)
-    planesur_faceedge = torch.load(loadpt).to(device)
-    logger.info(f"物体：{loadobj}， verts={planesur_vert.shape}， faces={planesur_face.shape}， edge={planesur_faceedge.shape}")
-    autoencoder = MeshAutoencoder(num_discrete_coors = 128) #这里实例化，是进去跑了init
+
+    
+    # loadobj = os.path.join(ROOT/'planes'/f'{in_obj}.obj')
+    # loadpt = os.path.join(ROOT/'planes'/f'{in_obj}.pt')
+    # mesh = trimesh.load_mesh(loadobj)
+    # planesur_face = torch.tensor(mesh.faces,dtype=int).unsqueeze(0).to(device)
+    # planesur_vert = torch.tensor(mesh.vertices,dtype=torch.float32).unsqueeze(0).to(device)
+    # planesur_faceedge = torch.load(loadpt).to(device)
+    # logger.info(f"物体：{loadobj}， verts={planesur_vert.shape}， faces={planesur_face.shape}， edge={planesur_faceedge.shape}")
+
+    autoencoder = MeshAutoencoder(num_discrete_coors = 128).to(device) #这里实例化，是进去跑了init
     autoencoder.load_state_dict(torch.load(weight), strict=False)
-    autoencoder = autoencoder.to(device)
+    # autoencoder = autoencoder.to(device)
     #-------------------------------------------------------------------------------------
     with torch.no_grad():
         for in_em1,rcs1 in tqdm(dataloader,desc=f'datasets进度',ncols=130,postfix=f''):
-            loss, outrcs, psnrlist, ssimlist, mse = inference( #这里使用网络，是进去跑了forward
-                weight = weight,
-                in_obj= in_obj,
-                in_em = in_em1,
+            in_em0 = in_em1.copy()
+            objlist , _ = find_matching_files(in_em1[0], "./planes")
+            planesur_faces, planesur_verts, planesur_faceedges, geoinfo = process_files(objlist, device)
+
+            start_time0 = time.time()
+            loss, outrcs, _, psnrlist, _, ssimlist, mse = autoencoder( #这里使用网络，是进去跑了forward
+                vertices = planesur_verts,
+                faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
+                face_edges = planesur_faceedges,
+                geoinfo = geoinfo, #[area, volume, scale]
+                in_em = in_em1,#.to(device)
                 GT = rcs1.to(device), #这里放真值
-                logger=logger,
-                device=device
+                logger = logger,
+                device = device
             )
-            eminfo = [int(in_em1[0][0]), int(in_em1[0][1]), float(f'{in_em1[0][2]:.3f}')]
-            logger.info(f'em={eminfo}, loss={loss:.4f}')
+            # torch.cuda.empty_cache()
+            logger.info(f'\n推理用时：{time.time()-start_time0:.4f}s')
+
+            eminfo = [int(in_em0[1]), int(in_em0[2]), float(in_em0[3])]
+            plane = in_em0[0][0]
+            logger.info(f'{plane}, em={eminfo}, loss={loss:.4f}')
             # torch.cuda.empty_cache()
             outrcs = outrcs.squeeze()
             rcs1 = rcs1.squeeze()
-            outrcspngpath = os.path.join(save_dir,f'{in_obj[:4]}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]}.png')
-            out2Drcspngpath = os.path.join(save_dir,f'{in_obj[:4]}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]}_psnr{psnrlist.item():.2f}_ssim{ssimlist.item():.4f}_mse{mse:.4f}_2D.png')
-            outGTpngpath = os.path.join(save_dir,f'{in_obj[:4]}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]}_GT.png')
-            out2DGTpngpath = os.path.join(save_dir,f'{in_obj[:4]}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]}_2DGT.png')
+            outrcspngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}.png')
+            out2Drcspngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_psnr{psnrlist.item():.2f}_ssim{ssimlist.item():.4f}_mse{mse:.4f}_2D.png')
+            outGTpngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_GT.png')
+            out2DGTpngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_2DGT.png')
             logger.info(out2Drcspngpath)
-            plotRCS2(rcs=outrcs, savedir=outrcspngpath, logger=logger) #ValueError: operands could not be broadcast together with shapes (1,361,720) (1,361)
-            plot2DRCS(rcs=outrcs, gesavedir=out2Drcspngpath, logger=logger) #ValueError: operands could not be broadcast together with shapes (1,361,720) (1,361)
-            plotRCS2(rcs=rcs1, savedir=outGTpngpath, logger=logger) #r'./output/inference/b827_theta90phi330freq0.9GT_1w4weight.png'
-            plot2DRCS(rcs=rcs1, savedir=out2DGTpngpath, logger=logger) #r'./output/inference/b827_theta90phi330freq0.9GT_1w4weight.png'
+            # plotRCS2(rcs=outrcs, savedir=outrcspngpath, logger=logger) #ValueError: operands could not be broadcast together with shapes (1,361,720) (1,361)
+            # plot2DRCS(rcs=outrcs, gesavedir=out2Drcspngpath, logger=logger) #ValueError: operands could not be broadcast together with shapes (1,361,720) (1,361)
+            # plotRCS2(rcs=rcs1, savedir=outGTpngpath, logger=logger) #r'./output/inference/b827_theta90phi330freq0.9GT_1w4weight.png'
+            # plot2DRCS(rcs=rcs1, savedir=out2DGTpngpath, logger=logger) #r'./output/inference/b827_theta90phi330freq0.9GT_1w4weight.png'
             torch.cuda.empty_cache()
             losses.append(loss)
             psnrs.append(psnrlist.item())
