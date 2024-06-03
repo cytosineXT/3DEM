@@ -722,7 +722,7 @@ class MeshAutoencoder(Module):
         self.conv1d1 = nn.Conv1d(785, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
         # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
         self.fc1d1 = nn.Linear(2250, middim*45*90)
-        self.kan1 = KAN([middim*45*90,64,middim*45*90],device=device)
+        self.kan1 = KAN([2250,64,2250],device=device)
         # Decoder3
         self.upconv1 = nn.ConvTranspose2d(middim, int(middim/2), kernel_size=2, stride=2)
         self.bn1 = nn.BatchNorm2d(int(middim/2))  # 添加的批量归一化层1
@@ -785,7 +785,7 @@ class MeshAutoencoder(Module):
         self.enfc0 = nn.Linear(4,22500,device=device) #为什么我的embedding层都能有梯度学出来，linear就不能学呢
         # self.enfc0.weight.data = self.enfc0.weight.data.to(torch.float64)
         # self.enfc0.bias.data = self.enfc0.bias.data.to(torch.float64)
-        self.enkan0 = KAN([22500,64,22500],device=device)
+        self.enkan0 = KAN([4,4,4],device=device)
 
         # attention related
 
@@ -992,8 +992,10 @@ class MeshAutoencoder(Module):
         ln_emfreq = in_em[3].clone()
         mixfreqgeo = torch.cat([geoinfo, in_em[3].unsqueeze(1)], dim=1).float()
         # mixfreqgeo = torch.Tensor([sublist + value for sublist, value in zip(geoinfo, in_em[3])]) #torch.size=([batchsize,4])
-        incident_freq_mtx=self.enfc0(mixfreqgeo) #为啥换成fc之后也没有grad。。看来不是kan的问题
-        incident_freq_mtx=self.enkan0(incident_freq_mtx)
+        incident_freq_mtx=self.enkan0(mixfreqgeo)
+        incident_freq_mtx=self.enfc0(incident_freq_mtx) #为啥换成fc之后也没有grad。。看来不是kan的问题
+        # incident_freq_mtx=self.enfc0(mixfreqgeo) #为啥换成fc之后也没有grad。。看来不是kan的问题
+        # incident_freq_mtx=self.enkan0(incident_freq_mtx)
         kan_emfreq = incident_freq_mtx.clone()
         # incident_freq_mtx=torch.sigmoid(incident_freq_mtx) #不用0到1了 就把sigmoid给去了
         # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}')
@@ -1251,10 +1253,11 @@ class MeshAutoencoder(Module):
         # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
 
         
-        x = self.fc1d1(x)
+       
         x = x.squeeze(1)
         x = self.kan1(x)
         x = x.unsqueeze(1)
+        x = self.fc1d1(x)
         # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
 
         x = x.view(x.size(0), -1, 45, 90)

@@ -1,6 +1,7 @@
 import torch
 import time
-from net.jxtnet_upConv4 import MeshAutoencoder
+from net.jxtnet_upConv4_fcKAN import MeshAutoencoder
+# from net.jxtnet_upConv4 import MeshAutoencoder
 # from net.jxtnet_upConv3_KAN_TV import MeshAutoencoder
 # from net.jxtnet_upConv3 import MeshAutoencoder
 # from net.jxtnet_upConv2_piloss import MeshAutoencoder
@@ -14,7 +15,8 @@ import os
 from tqdm import tqdm
 import re
 
-cuda = 'cuda:0'
+cuda = 'cuda:1'
+draw = True
 device = torch.device(cuda if torch.cuda.is_available() else "cpu")
 
 FILE = Path(__file__).resolve()
@@ -122,15 +124,6 @@ if __name__ == '__main__':
     #-------------------------------------------------------------------------------------
     logger.info(f'device:{device}')
 
-    
-    # loadobj = os.path.join(ROOT/'planes'/f'{in_obj}.obj')
-    # loadpt = os.path.join(ROOT/'planes'/f'{in_obj}.pt')
-    # mesh = trimesh.load_mesh(loadobj)
-    # planesur_face = torch.tensor(mesh.faces,dtype=int).unsqueeze(0).to(device)
-    # planesur_vert = torch.tensor(mesh.vertices,dtype=torch.float32).unsqueeze(0).to(device)
-    # planesur_faceedge = torch.load(loadpt).to(device)
-    # logger.info(f"物体：{loadobj}， verts={planesur_vert.shape}， faces={planesur_face.shape}， edge={planesur_faceedge.shape}")
-
     autoencoder = MeshAutoencoder(num_discrete_coors = 128).to(device) #这里实例化，是进去跑了init
     autoencoder.load_state_dict(torch.load(weight), strict=False)
     # autoencoder = autoencoder.to(device)
@@ -166,10 +159,11 @@ if __name__ == '__main__':
             outGTpngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_GT.png')
             out2DGTpngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_2DGT.png')
             logger.info(out2Drcspngpath)
-            plotRCS2(rcs=outrcs, savedir=outrcspngpath, logger=logger) #ValueError: operands could not be broadcast together with shapes (1,361,720) (1,361)
-            plot2DRCS(rcs=outrcs, savedir=out2Drcspngpath, logger=logger) #ValueError: operands could not be broadcast together with shapes (1,361,720) (1,361)
-            plotRCS2(rcs=rcs1, savedir=outGTpngpath, logger=logger) #r'./output/inference/b827_theta90phi330freq0.9GT_1w4weight.png'
-            plot2DRCS(rcs=rcs1, savedir=out2DGTpngpath, logger=logger) #r'./output/inference/b827_theta90phi330freq0.9GT_1w4weight.png'
+            if draw == True:
+                plotRCS2(rcs=outrcs, savedir=outrcspngpath, logger=logger) #ValueError: operands could not be broadcast together with shapes (1,361,720) (1,361)
+                plot2DRCS(rcs=outrcs, savedir=out2Drcspngpath, logger=logger) #ValueError: operands could not be broadcast together with shapes (1,361,720) (1,361)
+                plotRCS2(rcs=rcs1, savedir=outGTpngpath, logger=logger) #r'./output/inference/b827_theta90phi330freq0.9GT_1w4weight.png'
+                plot2DRCS(rcs=rcs1, savedir=out2DGTpngpath, logger=logger) #r'./output/inference/b827_theta90phi330freq0.9GT_1w4weight.png'
             torch.cuda.empty_cache()
             losses.append(loss)
             psnrs.append(psnrlist.item())

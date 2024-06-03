@@ -30,10 +30,10 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-batchsize = 1
+batchsize = 10
 epoch = 200
 use_preweight = True
-use_preweight = False
+# use_preweight = False
 cudadevice = 'cuda:0'
 
 threshold = 20
@@ -56,8 +56,8 @@ psnrs = []
 ssims = []
 mses = []
 
-# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt' #T7920 
-rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100' #T7920 
+rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt' #T7920 
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_test10' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOpt' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOptpretrain' #T7920 
@@ -70,9 +70,9 @@ rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100' #T7920
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_pretrain'#T7920 pretrain
 # rcsdir = r'/mnt/f/datasets/b827_test10' #305winwsl
 # rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
-pretrainweight = r'./output/train/0530upconv4ffc_mul26test100_/last.pt' #T7920
+pretrainweight = r'./output/train/0601upconv4fckan_mul26_pretrain/last.pt' #T7920
 
-save_dir = str(increment_path(Path(ROOT / "output" / "test" /'0601upconv4ffc_mul26_'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0603upconv4fckan_mul26_'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 # save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0518upconv3L1_b827_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
@@ -151,6 +151,7 @@ for i in range(epoch):
     # tqdm.write(f'epoch:{i+1}')
     timeepoch = time.time()
     for in_em1,rcs1 in tqdm(dataloader,desc=f'epoch:{i+1},datasets进度,lr={scheduler.get_last_lr()[0]:.5f}',ncols=130,postfix=f'上一轮的epoch:{i},loss_mean:{(epoch_loss1/dataset.__len__()):.4f}'):
+        in_em0 = in_em1.copy()
         optimizer.zero_grad()
         objlist , ptlist = find_matching_files(in_em1[0], "./planes")
         planesur_faces, planesur_verts, planesur_faceedges, geoinfo = process_files(objlist, device)
@@ -184,19 +185,19 @@ for i in range(epoch):
         mse_list.append(mse_mean)
         
     #-----------------------------------定期作图看效果小模块-------------------------------------------
-        in_em1[1:] = [tensor.to(device) for tensor in in_em1[1:]]
+        in_em0[1:] = [tensor.to(device) for tensor in in_em0[1:]]
         if flag == 1:
             # print(f'rcs:{outrcs.shape},em:{in_em1}in{in_em1.shape}')
             # print(f'rcs0{outrcs[0]==outrcs[0,:]}')
             drawrcs = outrcs[0]
             # drawem = torch.stack(in_em1[1:]).t()[0]
-            drawem = torch.stack(in_em1[1:]).t()[0]
+            drawem = torch.stack(in_em0[1:]).t()[0]
             drawGT = rcs1[0]
-            drawplane = in_em1[0]
+            drawplane = in_em0[0][0]
             flag = 0
-        for j in range(torch.stack(in_em1[1:]).t().shape[0]):
+        for j in range(torch.stack(in_em0[1:]).t().shape[0]):
             # print(f'em:{in_em1[0]},drawem:{drawem}')
-            if flag == 0 and torch.equal(torch.stack(in_em1[1:]).t()[j], drawem):
+            if flag == 0 and torch.equal(torch.stack(in_em0[1:]).t()[j], drawem):
                 drawrcs = outrcs[j]
                 break
                 # print(drawrcs.shape)
