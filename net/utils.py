@@ -138,7 +138,7 @@ def find_matching_files(prefixlist, directory):
     ptlist = []
     for prefix in prefixlist:
         for filename in os.listdir(directory):
-            if filename[:4]== prefix:
+            if filename[:4] == prefix and filename[-4:]=='.obj':
                 plane = filename[:-4]
                 loadobj = plane + '.obj'
                 loadpt = plane + '.pt'
