@@ -986,21 +986,16 @@ class MeshAutoencoder(Module):
 
         geoinfo = torch.Tensor(geoinfo).to(device).requires_grad_()
 
-        # in_obj = in_em[0]
-        # in_emfreq = in_em[3].clone()
+        in_obj = in_em[0]
+        in_emfreq = in_em[3].clone()
         in_em[3]=transform_to_log_coordinates(in_em[3]).to(device) #频率转换为对数坐标 加在encoder里！
-        # ln_emfreq = in_em[3].clone()
+        ln_emfreq = in_em[3].clone()
         mixfreqgeo = torch.cat([geoinfo, in_em[3].unsqueeze(1)], dim=1).float()
-        # mixfreqgeo = torch.Tensor([sublist + value for sublist, value in zip(geoinfo, in_em[3])]) #torch.size=([batchsize,4])
-        incident_freq_mtx=self.enkan0(mixfreqgeo)
-        incident_freq_mtx=self.enfc0(incident_freq_mtx) #为啥换成fc之后也没有grad。。看来不是kan的问题
-        # incident_freq_mtx=self.enfc0(mixfreqgeo) #为啥换成fc之后也没有grad。。看来不是kan的问题
-        # incident_freq_mtx=self.enkan0(incident_freq_mtx)
+        incident_freq_mtx = (incident_freq_mtx.expand(-1, face_coords.shape[1], -1)).to(device)
+
+        # incident_freq_mtx=self.enkan0(mixfreqgeo)
+        # incident_freq_mtx=self.enfc0(incident_freq_mtx) #为啥换成fc之后也没有grad。。看来不是kan的问题
         # kan_emfreq = incident_freq_mtx.clone()
-        # incident_freq_mtx=torch.sigmoid(incident_freq_mtx) #不用0到1了 就把sigmoid给去了
-        # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}')
-        # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，KAN后归一化电尺度{kan_emfreq}，sigmoid后{incident_freq_mtx}')
-        # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，fc后归一化电尺度{kan_emfreq[0]}，sigmoid后{incident_freq_mtx[0]}')
         # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，fc后归一化电尺度{kan_emfreq[0]}')
         # geomtx = (torch.Tensor(geoinfo).unsqueeze(1).expand(-1, area.shape[1], -1)).to(device)
 

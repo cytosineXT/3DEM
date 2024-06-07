@@ -17,6 +17,7 @@ import re
 
 cuda = 'cuda:1'
 draw = True
+draw = False
 device = torch.device(cuda if torch.cuda.is_available() else "cpu")
 
 FILE = Path(__file__).resolve()
@@ -83,16 +84,17 @@ if __name__ == '__main__':
 
     # weight = r'./output/test/0509upconv2_b827_001lr6/best2w.pt'
     # weight = r'./output/test/0514upconv2_b827_10/last.pt'
-    weight = r'./output/train/0531upconv4ffc_mul26_/best.pt'
+    weight = r'./output/train/0605upconv4fckan_mul2347_pretrain3/last.pt'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_ctrl9090_val'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_test10'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/datasets/b827_xiezhen_small'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_val'
-    rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_val'
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
+    rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_train'
 
     # in_obj = 'b82731071bd39b66e4c15ad8a2edd2e'
 
-    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /'0601_upconv4_mul26_'), exist_ok=False))
+    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /'0607_upconv4_mul2347val6_'), exist_ok=False))
     # pngsavedir = os.path.join(save_dir,'0508_b827_theta90phi330freq0.9_4w_sm.png')
     logdir = os.path.join(save_dir,'alog.txt')
     logger = get_logger(logdir)
@@ -105,6 +107,7 @@ if __name__ == '__main__':
     ssims = []
     mses = []
     losses = []
+    corrupted_files = []
     for file in tqdm(os.listdir(rcsdir),desc=f'数据集加载进度',ncols=100,postfix='后缀'):
         # print(file)
         plane, theta, phi, freq= re.search(r"([a-zA-Z0-9]{4})_theta(\d+)phi(\d+)f(\d.+).pt", file).groups()
@@ -113,7 +116,11 @@ if __name__ == '__main__':
         freq = float(freq)
         in_em = [plane,theta,phi,freq]
         # print(in_em)
-        rcs = torch.load(os.path.join(rcsdir,file))
+        try:
+            rcs = torch.load(os.path.join(rcsdir,file))
+        except Exception as e:
+            corrupted_files.append(os.path.join(rcsdir,file))
+        logger.info(f"Error loading file {os.path.join(rcsdir,file)}: {e}")
         in_ems.append(in_em)
         rcss.append(rcs)
         # rcss.append(rcs[:,:,0])
@@ -175,3 +182,4 @@ if __name__ == '__main__':
         ave_mse = sum(mses)/len(mses)
         logger.info(f"已用{weight}验证{len(losses)}个数据, Mean Loss: {ave_loss:.4f}, Mean PSNR: {ave_psnr:.2f}dB, Mean SSIM: {ave_ssim:.4f}, Mean MSE:{ave_mse:.4f}")
         logger.info(f'val数据集地址:{rcsdir}, 总耗时:{time.strftime("%H:%M:%S", time.gmtime(time.time()-tic))}')
+    logger.info(f"损坏的文件：{corrupted_files}")

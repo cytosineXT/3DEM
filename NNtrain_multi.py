@@ -30,8 +30,8 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-batchsize = 12 #1卡14是极限了 0卡10是极限
-epoch = 200
+batchsize = 12 #1卡12是极限了 0卡10是极限
+epoch = 400
 use_preweight = True
 # use_preweight = False
 cudadevice = 'cuda:0'
@@ -55,8 +55,10 @@ mse_list = []
 psnrs = []
 ssims = []
 mses = []
+corrupted_files = []
 
-rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_pretrain' #T7920 
+rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_train' #T7920 
+valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_test10' #T7920 
@@ -71,9 +73,9 @@ rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_pretrain' #T7920
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_pretrain'#T7920 pretrain
 # rcsdir = r'/mnt/f/datasets/b827_test10' #305winwsl
 # rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
-pretrainweight = r'./output/train/0603upconv4fckan_mul26_/last.pt' #T7920
+pretrainweight = r'./output/train/0605upconv4fckan_mul2347_pretrain3/last.pt' #T7920
 
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0604upconv4fckan_mul2347_pretrain'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0607upconv4fckan_mul2347_pretrain'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 # save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0518upconv3L1_b827_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
@@ -96,8 +98,11 @@ for file in tqdm(os.listdir(rcsdir),desc=f'数据集加载进度',ncols=100,post
     freq = float(freq)
     in_em = [plane,theta,phi,freq]
     # print(in_em)
-    rcs = torch.load(os.path.join(rcsdir,file))
-
+    try:
+        rcs = torch.load(os.path.join(rcsdir,file))
+    except Exception as e:
+        corrupted_files.append(os.path.join(rcsdir,file))
+        logger.info(f"Error loading file {os.path.join(rcsdir,file)}: {e}")
     in_ems.append(in_em)
     rcss.append(rcs)
 
@@ -284,7 +289,7 @@ for i in range(epoch):
     plt.savefig(msesavedir)
     # plt.show()
 
-
+logger.info(f"损坏的文件：{corrupted_files}")
 logger.info(f'训练结束时间：{time.strftime("%Y-%m-%d %H:%M:%S",time.localtime(time.time()))}')
 end_time0 = time.time()
 logger.info(f'训练用时： {time.strftime("%H:%M:%S", time.gmtime(end_time0-start_time0))}')

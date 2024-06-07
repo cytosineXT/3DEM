@@ -73,6 +73,8 @@ def batch_psnr(img1, img2):
     return torch.tensor(psnrlist)
 
 def transform_to_log_coordinates(x):
+    if not isinstance(x, torch.Tensor):
+        x = torch.tensor(x)
     log_x = (torch.log10(torch.where(x <= 0, torch.finfo(torch.float).eps, x)) - torch.log10(torch.tensor(0.001))) / (torch.log10(torch.tensor(8)) - torch.log10(torch.tensor(0.001))) # 将负值和零转换为正值,取对数,归一化处理
     return log_x
 
