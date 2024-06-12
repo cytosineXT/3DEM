@@ -16,7 +16,7 @@ import re
 import matplotlib.pyplot as plt
 from pathlib import Path
 from net.utils import increment_path, meshRCSDataset, get_logger, get_model_memory, psnr, ssim, find_matching_files, process_files #, get_tensor_memory, transform_to_log_coordinates
-from NNvalfast import plotRCS2, plot2DRCS
+from NNvalfast import plotRCS2, plot2DRCS, valmain
 # from pytorch_memlab import profile, set_target_gpu
 
 
@@ -30,10 +30,10 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-batchsize = 12 #1卡12是极限了 0卡10是极限
+batchsize = 8 #1卡12是极限了 0卡10是极限
 epoch = 400
 use_preweight = True
-# use_preweight = False
+use_preweight = False
 cudadevice = 'cuda:0'
 
 threshold = 20
@@ -57,7 +57,8 @@ ssims = []
 mses = []
 corrupted_files = []
 
-rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_train' #T7920 
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_train' #T7920 
+rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_pretrain' #T7920 
 valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100' #T7920 
@@ -75,7 +76,7 @@ valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
 # rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
 pretrainweight = r'./output/train/0605upconv4fckan_mul2347_pretrain3/last.pt' #T7920
 
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0607upconv4fckan_mul2347_pretrain'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0612upconv4fckan_mul2347pretrain_'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 # save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0518upconv3L1_b827_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
@@ -288,6 +289,8 @@ for i in range(epoch):
     plt.title('Training MSE Curve')
     plt.savefig(msesavedir)
     # plt.show()
+
+    valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger)
 
 logger.info(f"损坏的文件：{corrupted_files}")
 logger.info(f'训练结束时间：{time.strftime("%Y-%m-%d %H:%M:%S",time.localtime(time.time()))}')

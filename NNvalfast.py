@@ -14,11 +14,10 @@ import sys
 import os
 from tqdm import tqdm
 import re
-
-cuda = 'cuda:1'
-draw = True
-draw = False
-device = torch.device(cuda if torch.cuda.is_available() else "cpu")
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.stats import norm
+from matplotlib.ticker import FuncFormatter
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
@@ -79,25 +78,75 @@ def plot2DRCS(rcs, savedir,logger):
     plt.savefig(savedir)
     logger.info(f'画图用时：{time.time()-tic:.4f}s')
 
-if __name__ == '__main__':
+def plotstatistic(psnr_list, ssim_list, mse_list, statisticdir):
+    # 绘制统计图
+    def to_percent(y,position):
+        return str(int((100*y))) #+"%"#这里可以用round（）函数设置取几位小数
+    binss = 40
+    
+    # 设置图像大小和子图
+    plt.figure(figsize=(4, 9))
+
+    mse_threshold = 15
+    mse_list = [m for m in mse_list if m <= mse_threshold]
+
+    # MSE 直方图和正态分布曲线
+    plt.subplot(3, 1, 1)
+    # counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True, stacked=True)
+    counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True)
+    fomatter=FuncFormatter(to_percent)
+    plt.gca().yaxis.set_major_formatter(fomatter)
+    mu, std = norm.fit(mse_list)
+    x = np.linspace(-5, 15, 1000)
+    plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
+    plt.xlim(-5, 15)  # 限制横坐标范围
+    plt.xlabel('MSE')
+    # plt.ylabel('Probability of samples')
+    plt.ylabel('Probability of samples (%)')
+    plt.title('MSE Histogram and Normal Fit')
+    plt.legend()
+
+    # PSNR 直方图和正态分布曲线
+    plt.subplot(3, 1, 2)
+    # counts, bins, patches = plt.hist(psnr_list, bins=binss, edgecolor='black', density=True, stacked=True)
+    counts, bins, patches = plt.hist(psnr_list, bins=binss, edgecolor='black', density=True)
+    fomatter=FuncFormatter(to_percent)
+    plt.gca().yaxis.set_major_formatter(fomatter)
+    mu, std = norm.fit(psnr_list)
+    x = np.linspace(15,45, 1000)
+    # x = np.linspace(min(psnr_list), max(psnr_list), 1000)
+    plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
+    # plt.xlim(-5, 15)  # 限制横坐标范围
+    plt.xlabel('PSNR')
+    # plt.ylabel('Probability of samples')
+    plt.ylabel('Probability of samples (%)')
+    plt.title('PSNR Histogram and Normal Fit')
+    plt.legend()
+
+    # SSIM 直方图和正态分布曲线
+    plt.subplot(3, 1, 3)
+    # counts, bins, patches = plt.hist(ssim_list, bins=binss, edgecolor='black', density=True, stacked=True)
+    counts, bins, patches = plt.hist(ssim_list, bins=binss, edgecolor='black', density=True)
+    # fomatter=FuncFormatter(to_percent)
+    # plt.gca().yaxis.set_major_formatter(fomatter)
+    mu, std = norm.fit(ssim_list)
+    x = np.linspace(0.6,1.1, 1000)
+    # x = np.linspace(min(ssim_list), max(ssim_list), 1000)
+    plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
+    plt.xlim(0.55, 1.1)  # 限制横坐标范围
+    plt.xlabel('SSIM')
+    # plt.ylabel('Probability of samples')
+    plt.ylabel('Probability of samples (%)')
+    plt.title('SSIM Histogram and Normal Fit')
+    plt.legend()
+
+    plt.tight_layout()
+    # plt.show()
+    plt.savefig(statisticdir)
+
+def valmain(draw, device, weight, rcsdir, save_dir, logger):
     tic = time.time()
-
-    # weight = r'./output/test/0509upconv2_b827_001lr6/best2w.pt'
-    # weight = r'./output/test/0514upconv2_b827_10/last.pt'
-    weight = r'./output/train/0605upconv4fckan_mul2347_pretrain3/last.pt'
-    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_ctrl9090_val'
-    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_test10'
-    # rcsdir = r'/mnt/Disk/jiangxiaotian/datasets/b827_xiezhen_small'
-    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_val'
-    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
-    rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_train'
-
-    # in_obj = 'b82731071bd39b66e4c15ad8a2edd2e'
-
-    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /'0607_upconv4_mul2347val6_'), exist_ok=False))
     # pngsavedir = os.path.join(save_dir,'0508_b827_theta90phi330freq0.9_4w_sm.png')
-    logdir = os.path.join(save_dir,'alog.txt')
-    logger = get_logger(logdir)
 
     logger.info(f'正在用{weight}验证推理{rcsdir}及画图')
 
@@ -120,7 +169,7 @@ if __name__ == '__main__':
             rcs = torch.load(os.path.join(rcsdir,file))
         except Exception as e:
             corrupted_files.append(os.path.join(rcsdir,file))
-        logger.info(f"Error loading file {os.path.join(rcsdir,file)}: {e}")
+            logger.info(f"Error loading file {os.path.join(rcsdir,file)}: {e}")
         in_ems.append(in_em)
         rcss.append(rcs)
         # rcss.append(rcs[:,:,0])
@@ -182,4 +231,31 @@ if __name__ == '__main__':
         ave_mse = sum(mses)/len(mses)
         logger.info(f"已用{weight}验证{len(losses)}个数据, Mean Loss: {ave_loss:.4f}, Mean PSNR: {ave_psnr:.2f}dB, Mean SSIM: {ave_ssim:.4f}, Mean MSE:{ave_mse:.4f}")
         logger.info(f'val数据集地址:{rcsdir}, 总耗时:{time.strftime("%H:%M:%S", time.gmtime(time.time()-tic))}')
-    logger.info(f"损坏的文件：{corrupted_files}")
+        logger.info(f"损坏的文件：{corrupted_files}")
+        statisdir = os.path.join(save_dir,f'statistic.png')
+        plotstatistic(psnrs,ssims,mses,statisdir)
+
+
+if __name__ == '__main__':
+    cuda = 'cuda:1'
+    draw = True
+    draw = False
+    device = torch.device(cuda if torch.cuda.is_available() else "cpu")
+
+    # weight = r'./output/test/0509upconv2_b827_001lr6/best2w.pt'
+    # weight = r'./output/test/0514upconv2_b827_10/last.pt'
+    # weight = r'./output/train/0605upconv4fckan_mul2347_pretrain3/last.pt'
+    weight = r'./output/train/0605upconv4fckan_mul2347_pretrain3/last.pt'
+
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_ctrl9090_val'
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_test10'
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/datasets/b827_xiezhen_small'
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_val'
+    rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_train'
+
+    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /'0612_upconv4_mul2347_val6_'), exist_ok=False))
+    logdir = os.path.join(save_dir,'alog.txt')
+    logger = get_logger(logdir)
+
+    valmain(draw, device, weight, rcsdir, save_dir, logger)
