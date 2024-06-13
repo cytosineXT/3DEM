@@ -83,23 +83,25 @@ def plotstatistic(psnr_list, ssim_list, mse_list, statisticdir):
     def to_percent(y,position):
         return str(int((100*y))) #+"%"#这里可以用round（）函数设置取几位小数
     binss = 40
-    
-    # 设置图像大小和子图
-    plt.figure(figsize=(4, 9))
 
-    mse_threshold = 15
+    plt.clf()
+    # 设置图像大小和子图
+    plt.figure(figsize=(12, 6))
+
+    mse_threshold = 7
     mse_list = [m for m in mse_list if m <= mse_threshold]
 
     # MSE 直方图和正态分布曲线
-    plt.subplot(3, 1, 1)
+    plt.subplot(3, 3, 1)
     # counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True, stacked=True)
     counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True)
     fomatter=FuncFormatter(to_percent)
     plt.gca().yaxis.set_major_formatter(fomatter)
     mu, std = norm.fit(mse_list)
-    x = np.linspace(-5, 15, 1000)
+    # x = np.linspace(-5, 15, 1000)
+    x = np.linspace(min(mse_list)-2, max(mse_list)+2, 1000)
     plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
-    plt.xlim(-5, 15)  # 限制横坐标范围
+    # plt.xlim(-5, 15)  # 限制横坐标范围
     plt.xlabel('MSE')
     # plt.ylabel('Probability of samples')
     plt.ylabel('Probability of samples (%)')
@@ -107,14 +109,14 @@ def plotstatistic(psnr_list, ssim_list, mse_list, statisticdir):
     plt.legend()
 
     # PSNR 直方图和正态分布曲线
-    plt.subplot(3, 1, 2)
+    plt.subplot(3, 3, 2)
     # counts, bins, patches = plt.hist(psnr_list, bins=binss, edgecolor='black', density=True, stacked=True)
     counts, bins, patches = plt.hist(psnr_list, bins=binss, edgecolor='black', density=True)
     fomatter=FuncFormatter(to_percent)
     plt.gca().yaxis.set_major_formatter(fomatter)
     mu, std = norm.fit(psnr_list)
-    x = np.linspace(15,45, 1000)
-    # x = np.linspace(min(psnr_list), max(psnr_list), 1000)
+    # x = np.linspace(15,45, 1000)
+    x = np.linspace(min(psnr_list)-2, max(psnr_list)+2, 1000)
     plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
     # plt.xlim(-5, 15)  # 限制横坐标范围
     plt.xlabel('PSNR')
@@ -124,16 +126,16 @@ def plotstatistic(psnr_list, ssim_list, mse_list, statisticdir):
     plt.legend()
 
     # SSIM 直方图和正态分布曲线
-    plt.subplot(3, 1, 3)
+    plt.subplot(3, 3, 3)
     # counts, bins, patches = plt.hist(ssim_list, bins=binss, edgecolor='black', density=True, stacked=True)
     counts, bins, patches = plt.hist(ssim_list, bins=binss, edgecolor='black', density=True)
     # fomatter=FuncFormatter(to_percent)
     # plt.gca().yaxis.set_major_formatter(fomatter)
     mu, std = norm.fit(ssim_list)
-    x = np.linspace(0.6,1.1, 1000)
-    # x = np.linspace(min(ssim_list), max(ssim_list), 1000)
+    # x = np.linspace(0.6,1.1, 1000)
+    x = np.linspace(min(ssim_list)-0.05, max(ssim_list)+0.05, 1000)
     plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
-    plt.xlim(0.55, 1.1)  # 限制横坐标范围
+    # plt.xlim(0.55, 1.1)  # 限制横坐标范围
     plt.xlabel('SSIM')
     # plt.ylabel('Probability of samples')
     plt.ylabel('Probability of samples (%)')
@@ -144,11 +146,11 @@ def plotstatistic(psnr_list, ssim_list, mse_list, statisticdir):
     # plt.show()
     plt.savefig(statisticdir)
 
-def valmain(draw, device, weight, rcsdir, save_dir, logger):
+def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, trainval=False):
     tic = time.time()
     # pngsavedir = os.path.join(save_dir,'0508_b827_theta90phi330freq0.9_4w_sm.png')
-
-    logger.info(f'正在用{weight}验证推理{rcsdir}及画图')
+    if trainval == False:
+        logger.info(f'正在用{weight}验证推理{rcsdir}及画图')
 
     in_ems = []
     rcss = []
@@ -157,7 +159,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger):
     mses = []
     losses = []
     corrupted_files = []
-    for file in tqdm(os.listdir(rcsdir),desc=f'数据集加载进度',ncols=100,postfix='后缀'):
+    for file in tqdm(os.listdir(rcsdir),desc=f'加载验证数据集',ncols=60,postfix=''):
         # print(file)
         plane, theta, phi, freq= re.search(r"([a-zA-Z0-9]{4})_theta(\d+)phi(\d+)f(\d.+).pt", file).groups()
         theta = int(theta)
@@ -175,17 +177,18 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger):
         # rcss.append(rcs[:,:,0])
 
     dataset = meshRCSDataset(in_ems, rcss)
-    dataloader = DataLoader.DataLoader(dataset, batch_size=1, shuffle=False, num_workers=0)
+    dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=False, num_workers=0)
 
     #-------------------------------------------------------------------------------------
-    logger.info(f'device:{device}')
+    if trainval == False:
+        logger.info(f'device:{device}')
 
     autoencoder = MeshAutoencoder(num_discrete_coors = 128).to(device) #这里实例化，是进去跑了init
     autoencoder.load_state_dict(torch.load(weight), strict=False)
     # autoencoder = autoencoder.to(device)
     #-------------------------------------------------------------------------------------
     with torch.no_grad():
-        for in_em1,rcs1 in tqdm(dataloader,desc=f'datasets进度',ncols=130,postfix=f''):
+        for in_em1,rcs1 in tqdm(dataloader,desc=f'val进度',ncols=70,postfix=f''):
             in_em0 = in_em1.copy()
             objlist , _ = find_matching_files(in_em1[0], "./planes")
             planesur_faces, planesur_verts, planesur_faceedges, geoinfo = process_files(objlist, device)
@@ -202,46 +205,58 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger):
                 device = device
             )
             # torch.cuda.empty_cache()
-            logger.info(f'\n推理用时：{time.time()-start_time0:.4f}s')
-
-            eminfo = [int(in_em0[1]), int(in_em0[2]), float(in_em0[3])]
-            plane = in_em0[0][0]
-            logger.info(f'{plane}, em={eminfo}, loss={loss:.4f}')
-            # torch.cuda.empty_cache()
-            outrcs = outrcs.squeeze()
-            rcs1 = rcs1.squeeze()
-            outrcspngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}.png')
-            out2Drcspngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_psnr{psnrlist.item():.2f}_ssim{ssimlist.item():.4f}_mse{mse:.4f}_2D.png')
-            outGTpngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_GT.png')
-            out2DGTpngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_2DGT.png')
-            logger.info(out2Drcspngpath)
+            if trainval == False:
+                logger.info(f'推理用时：{time.time()-start_time0:.4f}s')
+                eminfo = [int(in_em0[1]), int(in_em0[2]), float(in_em0[3])]
+                plane = in_em0[0][0]
+                logger.info(f'{plane}, em={eminfo}, loss={loss:.4f}')
+                # torch.cuda.empty_cache()
+                outrcs = outrcs.squeeze()
+                rcs1 = rcs1.squeeze()
+                outrcspngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}.png')
+                out2Drcspngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_psnr{psnrlist.item():.2f}_ssim{ssimlist.item():.4f}_mse{mse:.4f}_2D.png')
+                outGTpngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_GT.png')
+                out2DGTpngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_2DGT.png')
+                logger.info(out2Drcspngpath)
             if draw == True:
                 plotRCS2(rcs=outrcs, savedir=outrcspngpath, logger=logger) #ValueError: operands could not be broadcast together with shapes (1,361,720) (1,361)
                 plot2DRCS(rcs=outrcs, savedir=out2Drcspngpath, logger=logger) #ValueError: operands could not be broadcast together with shapes (1,361,720) (1,361)
                 plotRCS2(rcs=rcs1, savedir=outGTpngpath, logger=logger) #r'./output/inference/b827_theta90phi330freq0.9GT_1w4weight.png'
                 plot2DRCS(rcs=rcs1, savedir=out2DGTpngpath, logger=logger) #r'./output/inference/b827_theta90phi330freq0.9GT_1w4weight.png'
+            
             torch.cuda.empty_cache()
             losses.append(loss)
-            psnrs.append(psnrlist.item())
-            ssims.append(ssimlist.item())
-            mses.append(mse.item())
+            psnrs.append(psnrlist.mean())
+            ssims.append(ssimlist.mean())
+            mses.append(mse.mean())
+            # psnrs.append(psnrlist.item())
+            # ssims.append(ssimlist.item())
+            # mses.append(mse.item())
         ave_loss = sum(losses)/len(losses)
         ave_psnr = sum(psnrs)/len(psnrs)
         ave_ssim = sum(ssims)/len(ssims)
         ave_mse = sum(mses)/len(mses)
-        logger.info(f"已用{weight}验证{len(losses)}个数据, Mean Loss: {ave_loss:.4f}, Mean PSNR: {ave_psnr:.2f}dB, Mean SSIM: {ave_ssim:.4f}, Mean MSE:{ave_mse:.4f}")
-        logger.info(f'val数据集地址:{rcsdir}, 总耗时:{time.strftime("%H:%M:%S", time.gmtime(time.time()-tic))}')
-        logger.info(f"损坏的文件：{corrupted_files}")
-        statisdir = os.path.join(save_dir,f'statistic.png')
+        if trainval == False:
+            logger.info(f"已用{weight}验证{len(losses)}个数据, Mean Loss: {ave_loss:.4f}, Mean PSNR: {ave_psnr:.2f}dB, Mean SSIM: {ave_ssim:.4f}, Mean MSE:{ave_mse:.4f}")
+            logger.info(f'val数据集地址:{rcsdir}, 总耗时:{time.strftime("%H:%M:%S", time.gmtime(time.time()-tic))}')
+            logger.info(f"损坏的文件：{corrupted_files}")
+        logger.info(f'↑----val loss:{ave_loss:.4f},psnr:{ave_psnr:.2f},ssim:{ave_ssim:.4f},mse:{ave_mse:.4f}----↑')
+        # if epoch % 20 == 0 or epoch == -1: #存指定倍数轮的
+        #     statisdir = os.path.join(save_dir,f'statistic_epoch{epoch}.png')
+        #     plotstatistic(psnrs,ssims,mses,statisdir)
+
+        statisdir = os.path.join(save_dir,f'statistic_epoch{epoch}.png')
         plotstatistic(psnrs,ssims,mses,statisdir)
 
 
 if __name__ == '__main__':
+
+    trainval = False
     cuda = 'cuda:1'
     draw = True
     draw = False
     device = torch.device(cuda if torch.cuda.is_available() else "cpu")
-
+    batchsize = 1
     # weight = r'./output/test/0509upconv2_b827_001lr6/best2w.pt'
     # weight = r'./output/test/0514upconv2_b827_10/last.pt'
     # weight = r'./output/train/0605upconv4fckan_mul2347_pretrain3/last.pt'
@@ -257,5 +272,6 @@ if __name__ == '__main__':
     save_dir = str(increment_path(Path(ROOT / "output" / "inference" /'0612_upconv4_mul2347_val6_'), exist_ok=False))
     logdir = os.path.join(save_dir,'alog.txt')
     logger = get_logger(logdir)
+    epoch = -1
 
-    valmain(draw, device, weight, rcsdir, save_dir, logger)
+    valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize ,trainval)

@@ -59,7 +59,7 @@ corrupted_files = []
 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_train' #T7920 
 rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_pretrain' #T7920 
-valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
+valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val_small'
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_test10' #T7920 
@@ -144,20 +144,16 @@ autoencoder = autoencoder.to(device)
 # optimizer = torch.optim.SGD(autoencoder.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-4)
 optimizer = torch.optim.Adam(autoencoder.parameters(), lr=learning_rate, weight_decay=1e-4)
 
-# scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
-# scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)# StepLR简单易用，可以按照指定的步数调整学习率。
-# scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30, 80], gamma=0.1)# MultiStepLR在指定的milestones上调整学习率，相对于StepLR更灵活。
-# scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)# ExponentialLR指数衰减调整学习率
-# scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5, verbose=True)# ReduceLROnPlateau根据验证集表现自动调整学习率
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=lr_time)# CosineAnnealingLR使用余弦函数调整学习率，可以更平滑地调整学习率
 
 flag = 1
 GTflag = 1
 for i in range(epoch):
+    logger.info('\n')
     epoch_loss = 0.
     # tqdm.write(f'epoch:{i+1}')
     timeepoch = time.time()
-    for in_em1,rcs1 in tqdm(dataloader,desc=f'epoch:{i+1},datasets进度,lr={scheduler.get_last_lr()[0]:.5f}',ncols=130,postfix=f'上一轮的epoch:{i},loss_mean:{(epoch_loss1/dataset.__len__()):.4f}'):
+    for in_em1,rcs1 in tqdm(dataloader,desc=f'epoch:{i+1},train进度,lr={scheduler.get_last_lr()[0]:.5f}',ncols=130,postfix=f'上一轮的epoch:{i},loss_mean:{(epoch_loss1/dataset.__len__()):.4f}'):
         in_em0 = in_em1.copy()
         optimizer.zero_grad()
         objlist , ptlist = find_matching_files(in_em1[0], "./planes")
@@ -246,19 +242,12 @@ for i in range(epoch):
     #     checkpointsavedir = os.path.join(save_dir,f'epoch{i}.pt')
     #     torch.save(autoencoder.state_dict(), checkpointsavedir) #T7920
 
-    ## 手动调学习率用
-    # if epoch_mean_loss < 50000 and cnt != 0:
-    #     learning_rate *= 0.1  # 减小学习率的因子
-    #     print(f'减小学习率为{learning_rate}')
-    #     # threshold *= 0.9
-    #     cnt = cnt - 1
-    # optimizer = torch.optim.Adam(autoencoder.parameters(), lr=learning_rate, weight_decay=1e-4)
-
     logger.info(f'↓-----------------本epoch用时：{time.strftime("%H:%M:%S", time.gmtime(time.time()-timeepoch))}-----------------↓')
-    logger.info(f'↑----epoch:{i+1},loss:{epoch_mean_loss:.4f},psnr:{epoch_psnr:.2f},ssim:{epoch_ssim:.4f},mse:{epoch_mse:.4f}----↑\n')
+    logger.info(f'↑----epoch:{i+1},loss:{epoch_mean_loss:.4f},psnr:{epoch_psnr:.2f},ssim:{epoch_ssim:.4f},mse:{epoch_mse:.4f}----↑')
     
     # 绘制loss曲线图
     plt.clf()
+    plt.figure(figsize=(7, 4.5))
     plt.plot(range(0, i+1), losses)
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
@@ -289,8 +278,8 @@ for i in range(epoch):
     plt.title('Training MSE Curve')
     plt.savefig(msesavedir)
     # plt.show()
-
-    valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger)
+    if epoch % 20 == 0 or epoch == -1: #存指定倍数轮的checkpoint
+        valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True)
 
 logger.info(f"损坏的文件：{corrupted_files}")
 logger.info(f'训练结束时间：{time.strftime("%Y-%m-%d %H:%M:%S",time.localtime(time.time()))}')

@@ -1402,7 +1402,7 @@ class MeshAutoencoder(Module):
             # l1loss = nn.L1Loss(reduction='sum')
             # loss = l1loss(decoded,GT)
             TVL1loss = TVL1Loss(beta=0.1)
-            loss = TVL1loss(decoded,GT)
+            loss = TVL1loss(decoded,GT)/(GT.shape[0])
             # loss = 1
 
             # batch_size = GT.size(0)
