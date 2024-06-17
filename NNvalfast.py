@@ -59,7 +59,7 @@ def plotRCS2(rcs,savedir,logger):
     pio.write_image(fig, savedir)
     logger.info(f'画图用时：{time.time()-tic:.4f}s')
 
-def plot2DRCS(rcs, savedir,logger):
+def plot2DRCS(rcs, savedir,logger,cutmax):
     import matplotlib.pyplot as plt
     from matplotlib import cm
     from matplotlib.colors import Normalize
@@ -73,6 +73,8 @@ def plot2DRCS(rcs, savedir,logger):
     plt.figure()
     plt.imshow(rcs, cmap=cmap, norm=norm, origin='lower')
     plt.colorbar(label='RCS/m²')
+    if cutmax != None:# 设置图例的上下限
+        plt.clim(0, cutmax)
     plt.xlabel("Theta")
     plt.ylabel("Phi")
     plt.savefig(savedir)
@@ -146,7 +148,7 @@ def plotstatistic(psnr_list, ssim_list, mse_list, statisticdir):
     # plt.show()
     plt.savefig(statisticdir)
 
-def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, trainval=False):
+def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, trainval=False, draw3d=False):
     tic = time.time()
     # pngsavedir = os.path.join(save_dir,'0508_b827_theta90phi330freq0.9_4w_sm.png')
     if trainval == False:
@@ -215,14 +217,17 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
                 rcs1 = rcs1.squeeze()
                 outrcspngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}.png')
                 out2Drcspngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_psnr{psnrlist.item():.2f}_ssim{ssimlist.item():.4f}_mse{mse:.4f}_2D.png')
+                out2Drcspngpath2 = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_psnr{psnrlist.item():.2f}_ssim{ssimlist.item():.4f}_mse{mse:.4f}_2Dcut.png')
                 outGTpngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_GT.png')
                 out2DGTpngpath = os.path.join(save_dir,f'{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_2DGT.png')
                 logger.info(out2Drcspngpath)
             if draw == True:
-                plotRCS2(rcs=outrcs, savedir=outrcspngpath, logger=logger) #ValueError: operands could not be broadcast together with shapes (1,361,720) (1,361)
-                plot2DRCS(rcs=outrcs, savedir=out2Drcspngpath, logger=logger) #ValueError: operands could not be broadcast together with shapes (1,361,720) (1,361)
-                plotRCS2(rcs=rcs1, savedir=outGTpngpath, logger=logger) #r'./output/inference/b827_theta90phi330freq0.9GT_1w4weight.png'
-                plot2DRCS(rcs=rcs1, savedir=out2DGTpngpath, logger=logger) #r'./output/inference/b827_theta90phi330freq0.9GT_1w4weight.png'
+                plot2DRCS(rcs=outrcs, savedir=out2Drcspngpath, logger=logger,cutmax=None) #预测2D
+                plot2DRCS(rcs=outrcs, savedir=out2Drcspngpath2, logger=logger,cutmax=torch.max(rcs1).item()) #预测2D但是带cut
+                plot2DRCS(rcs=rcs1, savedir=out2DGTpngpath, logger=logger,cutmax=None) #GT2D
+                if draw3d == True:
+                    plotRCS2(rcs=rcs1, savedir=outGTpngpath, logger=logger) #GT
+                    plotRCS2(rcs=outrcs, savedir=outrcspngpath, logger=logger) #预测
             
             torch.cuda.empty_cache()
             losses.append(loss)
@@ -245,22 +250,24 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
         #     statisdir = os.path.join(save_dir,f'statistic_epoch{epoch}.png')
         #     plotstatistic(psnrs,ssims,mses,statisdir)
 
-        statisdir = os.path.join(save_dir,f'statistic_epoch{epoch}.png')
+        statisdir = os.path.join(save_dir,f'statistic_epoch{epoch}_PSNR{ave_psnr:.2f}dB_SSIM{ave_ssim:.4f}_MSE:{ave_mse:.4f}_Loss{ave_loss:.4f}.png')
         plotstatistic(psnrs,ssims,mses,statisdir)
+        # plotstatistic(psnrs,ssims,mses,statisdir,ave_loss,ave_psnr,ave_ssim,ave_mse)
 
 
 if __name__ == '__main__':
 
     trainval = False
-    cuda = 'cuda:1'
+    cuda = 'cuda:0'
     draw = True
-    draw = False
+    # draw = False
+    draw3d = False
     device = torch.device(cuda if torch.cuda.is_available() else "cpu")
     batchsize = 1
     # weight = r'./output/test/0509upconv2_b827_001lr6/best2w.pt'
     # weight = r'./output/test/0514upconv2_b827_10/last.pt'
     # weight = r'./output/train/0605upconv4fckan_mul2347_pretrain3/last.pt'
-    weight = r'./output/train/0605upconv4fckan_mul2347_pretrain3/last.pt'
+    weight = r'./output/train/0615upconv4fckan_mul2347pretrain_/best.pt'
 
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_ctrl9090_val'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_test10'
@@ -269,9 +276,9 @@ if __name__ == '__main__':
     rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_train'
 
-    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /'0612_upconv4_mul2347_val6_'), exist_ok=False))
+    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /'0617_upconv4_mul2347pretrain0615_val6_'), exist_ok=False))
     logdir = os.path.join(save_dir,'alog.txt')
     logger = get_logger(logdir)
     epoch = -1
 
-    valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize ,trainval)
+    valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize ,trainval, draw3d)

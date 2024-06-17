@@ -64,6 +64,7 @@ class TVL1Loss(nn.Module):
 
     def forward(self, decoded, GT):
         # Calculate the MSE loss
+        # L1_loss = nn.L1Loss(reduction='mean')
         L1_loss = nn.L1Loss(reduction='sum')
         loss_L1 = L1_loss(decoded, GT)
         tvloss= total_variation(decoded)
@@ -1322,7 +1323,8 @@ class MeshAutoencoder(Module):
         in_em,
         GT,
         logger,
-        device
+        device,
+        lgrcs
     ):
         ticc = time.time()
         # if isinstance(face_edges, str):
@@ -1394,6 +1396,10 @@ class MeshAutoencoder(Module):
         if GT == None:
             return decoded
         else:
+            if lgrcs == True:
+                epsilon = 0.001 #防止lg0的鲁棒机制
+                GT = torch.log10(torch.max(GT, torch.tensor(epsilon, device=GT.device))) #只要这里加一行把gt变成lg后的gt就行了。。其他甚至都完全不用改
+                # GT = torch.pow(10, GT) #反变换在这里
             # print(f'decoded:{decoded.shape},GT:{GT.shape}') #decoded:torch.Size([361, 720]),GT:torch.Size([1, 361, 720])
             # smooth_loss = SmoothLoss()
             # loss= smooth_loss(decoded, GT)

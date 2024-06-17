@@ -31,16 +31,20 @@ if str(ROOT) not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 batchsize = 8 #1卡12是极限了 0卡10是极限
+# epoch = 1000
 epoch = 400
 use_preweight = True
-use_preweight = False
+# use_preweight = False
 cudadevice = 'cuda:0'
+lgrcs = True
+# lgrcs = False
 
 threshold = 20
 learning_rate = 0.001  # 初始学习率
 lr_time = 20
 
-shuffle = False
+shuffle = True
+# shuffle = False
 multigpu = False
 
 bestloss = 100000
@@ -59,7 +63,8 @@ corrupted_files = []
 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_train' #T7920 
 rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_pretrain' #T7920 
-valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val_small'
+valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
+# valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val_small'
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100' #T7920 
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_test10' #T7920 
@@ -74,9 +79,9 @@ valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val_small'
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_pretrain'#T7920 pretrain
 # rcsdir = r'/mnt/f/datasets/b827_test10' #305winwsl
 # rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
-pretrainweight = r'./output/train/0605upconv4fckan_mul2347_pretrain3/last.pt' #T7920
+pretrainweight = r'./output/train/0615upconv4fckan_mul2347pretrain_/last.pt' #T7920
 
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0612upconv4fckan_mul2347pretrain_'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0617upconv4lgrcs_mul2347pretrain_'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 # save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0518upconv3L1_b827_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
@@ -168,8 +173,12 @@ for i in range(epoch):
             in_em = in_em1,#.to(device)
             GT = rcs1.to(device), #这里放真值
             logger = logger,
-            device = device
+            device = device,
+            lgrcs = lgrcs
         )
+        if lgrcs == True:
+            outrcslg = outrcs
+            outrcs = torch.pow(10, outrcs)
         if batchsize > 1:
             # tqdm.write(f'loss:{loss.tolist()}')
             loss=loss.sum()
@@ -214,7 +223,7 @@ for i in range(epoch):
         plot2DRCS(rcs=drawGT, savedir=out2DGTpngpath, logger=logger)
         GTflag = 0
         logger.info('已画GT图')
-    if i == 0 or i % 20 == 0: #存指定倍数轮时画某张图看训练效果
+    if i == 0 or i % 50 == 0: #存指定倍数轮时画某张图看训练效果
         outrcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}.png')
         out2Drcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}_psnr{p.item():.2f}_ssim{s.item():.4f}_mse{m:.4f}_2D.png')
         plotRCS2(rcs=drawrcs, savedir=outrcspngpath, logger=logger)
@@ -278,7 +287,7 @@ for i in range(epoch):
     plt.title('Training MSE Curve')
     plt.savefig(msesavedir)
     # plt.show()
-    if epoch % 20 == 0 or epoch == -1: #存指定倍数轮的checkpoint
+    if i % 50 == 0 or i == -1: #存指定倍数轮的checkpoint
         valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True)
 
 logger.info(f"损坏的文件：{corrupted_files}")
