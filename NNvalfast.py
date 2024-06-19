@@ -1,6 +1,7 @@
 import torch
 import time
-from net.jxtnet_upConv4_fcKAN import MeshAutoencoder
+# from net.jxtnet_upConv5 import MeshAutoencoder
+from net.jxtnet_upConv4_silu import MeshAutoencoder
 # from net.jxtnet_upConv4 import MeshAutoencoder
 # from net.jxtnet_upConv3_KAN_TV import MeshAutoencoder
 # from net.jxtnet_upConv3 import MeshAutoencoder
@@ -148,7 +149,7 @@ def plotstatistic(psnr_list, ssim_list, mse_list, statisticdir):
     # plt.show()
     plt.savefig(statisticdir)
 
-def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, trainval=False, draw3d=False):
+def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, trainval=False, draw3d=False,lgrcs=True):
     tic = time.time()
     # pngsavedir = os.path.join(save_dir,'0508_b827_theta90phi330freq0.9_4w_sm.png')
     if trainval == False:
@@ -204,9 +205,12 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
                 in_em = in_em1,#.to(device)
                 GT = rcs1.to(device), #这里放真值
                 logger = logger,
-                device = device
+                device = device,
+                lgrcs = lgrcs
             )
             # torch.cuda.empty_cache()
+            if lgrcs == True:
+                outrcs = torch.pow(10, outrcs)
             if trainval == False:
                 logger.info(f'推理用时：{time.time()-start_time0:.4f}s')
                 eminfo = [int(in_em0[1]), int(in_em0[2]), float(in_em0[3])]
@@ -262,6 +266,7 @@ if __name__ == '__main__':
     draw = True
     # draw = False
     draw3d = False
+    lgrcs = True
     device = torch.device(cuda if torch.cuda.is_available() else "cpu")
     batchsize = 1
     # weight = r'./output/test/0509upconv2_b827_001lr6/best2w.pt'
@@ -281,4 +286,4 @@ if __name__ == '__main__':
     logger = get_logger(logdir)
     epoch = -1
 
-    valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize ,trainval, draw3d)
+    valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize ,trainval, draw3d,lgrcs)

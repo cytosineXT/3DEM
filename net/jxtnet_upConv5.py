@@ -64,6 +64,7 @@ class TVL1Loss(nn.Module):
 
     def forward(self, decoded, GT):
         # Calculate the MSE loss
+        # L1_loss = nn.L1Loss(reduction='mean')
         L1_loss = nn.L1Loss(reduction='sum')
         loss_L1 = L1_loss(decoded, GT)
         tvloss= total_variation(decoded)
@@ -745,6 +746,8 @@ class MeshAutoencoder(Module):
         self.bn3_1 = nn.BatchNorm2d(int(middim/8))  # 添加的批量归一化层1
         self.bn3_2 = nn.BatchNorm2d(int(middim/8))  # 添加的批量归一化层2
         self.conv1x1 = nn.Conv2d(int(middim/8), 1, kernel_size=1, stride=1, padding=0)   #1×1卷积，把多的维度融合了
+        self.huigui = nn.Linear(361*721, 1024,device=device)
+        self.huigui2 = nn.Linear(1024, 361*720,device=device)
 
 
         self.num_vertices_per_face = 3 if not quads else 4
@@ -986,16 +989,21 @@ class MeshAutoencoder(Module):
 
         geoinfo = torch.Tensor(geoinfo).to(device).requires_grad_()
 
-        in_obj = in_em[0]
-        in_emfreq = in_em[3].clone()
+        # in_obj = in_em[0]
+        # in_emfreq = in_em[3].clone()
         in_em[3]=transform_to_log_coordinates(in_em[3]).to(device) #频率转换为对数坐标 加在encoder里！
-        ln_emfreq = in_em[3].clone()
+        # ln_emfreq = in_em[3].clone()
         mixfreqgeo = torch.cat([geoinfo, in_em[3].unsqueeze(1)], dim=1).float()
-        incident_freq_mtx = (incident_freq_mtx.expand(-1, face_coords.shape[1], -1)).to(device)
-
-        # incident_freq_mtx=self.enkan0(mixfreqgeo)
-        # incident_freq_mtx=self.enfc0(incident_freq_mtx) #为啥换成fc之后也没有grad。。看来不是kan的问题
+        # mixfreqgeo = torch.Tensor([sublist + value for sublist, value in zip(geoinfo, in_em[3])]) #torch.size=([batchsize,4])
+        incident_freq_mtx=self.enkan0(mixfreqgeo)
+        incident_freq_mtx=self.enfc0(incident_freq_mtx) #为啥换成fc之后也没有grad。。看来不是kan的问题
+        # incident_freq_mtx=self.enfc0(mixfreqgeo) #为啥换成fc之后也没有grad。。看来不是kan的问题
+        # incident_freq_mtx=self.enkan0(incident_freq_mtx)
         # kan_emfreq = incident_freq_mtx.clone()
+        # incident_freq_mtx=torch.sigmoid(incident_freq_mtx) #不用0到1了 就把sigmoid给去了
+        # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}')
+        # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，KAN后归一化电尺度{kan_emfreq}，sigmoid后{incident_freq_mtx}')
+        # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，fc后归一化电尺度{kan_emfreq[0]}，sigmoid后{incident_freq_mtx[0]}')
         # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，fc后归一化电尺度{kan_emfreq[0]}')
         # geomtx = (torch.Tensor(geoinfo).unsqueeze(1).expand(-1, area.shape[1], -1)).to(device)
 
@@ -1252,7 +1260,7 @@ class MeshAutoencoder(Module):
         x = x.squeeze(1)
         x = self.kan1(x)
         x = x.unsqueeze(1)
-        x = self.fc1d1(x)
+        x = self.fc1d1(x) #2 1 2250
         # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
 
         x = x.view(x.size(0), -1, 45, 90)
@@ -1293,8 +1301,14 @@ class MeshAutoencoder(Module):
         
         x = self.conv1x1(x)
         # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+        x = x.view(x.size(0), 1, -1)
+        x = self.huigui(x) #2 1 361 721
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+        x = self.huigui2(x)
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+        x = x.view(x.size(0), 1, 361, -1)
 
-        x = x[:, :, :, :-1]
+        # x = x[:, :, :, :-1]
         # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
         # print(f'Decodr用时：{(time.time()-time0):.4f}s')
         return x.squeeze(dim=1)
@@ -1317,7 +1331,8 @@ class MeshAutoencoder(Module):
         in_em,
         GT,
         logger,
-        device
+        device,
+        lgrcs
     ):
         ticc = time.time()
         # if isinstance(face_edges, str):
@@ -1389,6 +1404,10 @@ class MeshAutoencoder(Module):
         if GT == None:
             return decoded
         else:
+            if lgrcs == True:
+                epsilon = 0.001 #防止lg0的鲁棒机制
+                GT = torch.log10(torch.max(GT, torch.tensor(epsilon, device=GT.device))) #只要这里加一行把gt变成lg后的gt就行了。。其他甚至都完全不用改
+                # GT = torch.pow(10, GT) #反变换在这里
             # print(f'decoded:{decoded.shape},GT:{GT.shape}') #decoded:torch.Size([361, 720]),GT:torch.Size([1, 361, 720])
             # smooth_loss = SmoothLoss()
             # loss= smooth_loss(decoded, GT)
@@ -1397,7 +1416,7 @@ class MeshAutoencoder(Module):
             # l1loss = nn.L1Loss(reduction='sum')
             # loss = l1loss(decoded,GT)
             TVL1loss = TVL1Loss(beta=0.1)
-            loss = TVL1loss(decoded,GT)
+            loss = TVL1loss(decoded,GT)/(GT.shape[0])
             # loss = 1
 
             # batch_size = GT.size(0)

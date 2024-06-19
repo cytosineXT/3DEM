@@ -5,7 +5,8 @@
 import torch
 import time
 from tqdm import tqdm
-from net.jxtnet_upConv4_fcKAN import MeshAutoencoder
+# from net.jxtnet_upConv5 import MeshAutoencoder
+from net.jxtnet_upConv4_silu import MeshAutoencoder
 # from net.jxtnet_upConv4 import MeshAutoencoder
 import torch.utils.data.dataloader as DataLoader
 # from torch.nn.parallel import DistributedDataParallel as DDP
@@ -30,12 +31,12 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-batchsize = 8 #1卡12是极限了 0卡10是极限
+batchsize = 10 #1卡12是极限了 0卡10是极限
 # epoch = 1000
 epoch = 400
 use_preweight = True
 # use_preweight = False
-cudadevice = 'cuda:0'
+cudadevice = 'cuda:1'
 lgrcs = True
 # lgrcs = False
 
@@ -45,7 +46,7 @@ lr_time = 20
 
 shuffle = True
 # shuffle = False
-multigpu = False
+multigpu = False 
 
 bestloss = 100000
 epoch_loss1 = 0.
@@ -79,9 +80,10 @@ valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_pretrain'#T7920 pretrain
 # rcsdir = r'/mnt/f/datasets/b827_test10' #305winwsl
 # rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
-pretrainweight = r'./output/train/0615upconv4fckan_mul2347pretrain_/last.pt' #T7920
+# pretrainweight = r'./output/train/0618upconv4_mul2347pretrain_/last.pt' #T7920
+pretrainweight = r'./output/train/0615upconv4fckan_mul2347pretrain_000/last.pt' #T7920
 
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0617upconv4lgrcs_mul2347pretrain_'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0619upconv4_mul2347pretrain_'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 # save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0518upconv3L1_b827_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
@@ -92,7 +94,7 @@ msesavedir = os.path.join(save_dir,'mse.png')
 logdir = os.path.join(save_dir,'log.txt')
 logger = get_logger(logdir)
 
-logger.info(f'参数设置：batchsize={batchsize}, epoch={epoch}, use_preweight={use_preweight}, cudadevice={cudadevice}, threshold={threshold}, learning_rate={learning_rate}, lr_time={lr_time}, shuffle={shuffle}, multigpu={multigpu}')
+logger.info(f'参数设置：batchsize={batchsize}, epoch={epoch}, use_preweight={use_preweight}, cudadevice={cudadevice}, threshold={threshold}, learning_rate={learning_rate}, lr_time={lr_time}, shuffle={shuffle}, multigpu={multigpu}, lgrcs={lgrcs}')
 logger.info(f'数据集用{rcsdir}训练')
 logger.info(f'保存到{lastsavedir}')
 
@@ -219,15 +221,15 @@ for i in range(epoch):
     if GTflag == 1:
         outGTpngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_GT.png')
         out2DGTpngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_2DGT.png')
-        plotRCS2(rcs=drawGT, savedir=outGTpngpath, logger=logger)
-        plot2DRCS(rcs=drawGT, savedir=out2DGTpngpath, logger=logger)
+        # plotRCS2(rcs=drawGT, savedir=outGTpngpath, logger=logger)
+        plot2DRCS(rcs=drawGT, savedir=out2DGTpngpath, logger=logger,cutmax=None)
         GTflag = 0
         logger.info('已画GT图')
     if i == 0 or i % 50 == 0: #存指定倍数轮时画某张图看训练效果
         outrcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}.png')
         out2Drcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}_psnr{p.item():.2f}_ssim{s.item():.4f}_mse{m:.4f}_2D.png')
-        plotRCS2(rcs=drawrcs, savedir=outrcspngpath, logger=logger)
-        plot2DRCS(rcs=drawrcs, savedir=out2Drcspngpath, logger=logger)
+        # plotRCS2(rcs=drawrcs, savedir=outrcspngpath, logger=logger)
+        plot2DRCS(rcs=drawrcs, savedir=out2Drcspngpath, logger=logger,cutmax=None)
         logger.info(f'已画{i}轮图')
 
     epoch_loss1 = epoch_loss
@@ -287,8 +289,8 @@ for i in range(epoch):
     plt.title('Training MSE Curve')
     plt.savefig(msesavedir)
     # plt.show()
-    if i % 50 == 0 or i == -1: #存指定倍数轮的checkpoint
-        valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True)
+    # if i % 50 == 0 or i == -1: #存指定倍数轮的checkpoint
+    #     valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs)
 
 logger.info(f"损坏的文件：{corrupted_files}")
 logger.info(f'训练结束时间：{time.strftime("%Y-%m-%d %H:%M:%S",time.localtime(time.time()))}')

@@ -1,6 +1,6 @@
 import torch
 import time
-from net.jxtnet_upConv4_fcKAN import MeshAutoencoder
+from net.jxtnet_upConv4_silu import MeshAutoencoder
 from net.utils import increment_path, meshRCSDataset, get_logger, find_matching_files, process_files
 import torch.utils.data.dataloader as DataLoader
 # import trimesh
