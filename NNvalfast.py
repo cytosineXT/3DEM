@@ -1,7 +1,7 @@
 import torch
 import time
 # from net.jxtnet_upConv5 import MeshAutoencoder
-from net.jxtnet_upConv4_silu import MeshAutoencoder
+from net.jxtnet_upConv4_relu import MeshAutoencoder
 # from net.jxtnet_upConv4 import MeshAutoencoder
 # from net.jxtnet_upConv3_KAN_TV import MeshAutoencoder
 # from net.jxtnet_upConv3 import MeshAutoencoder
@@ -266,22 +266,23 @@ if __name__ == '__main__':
     draw = True
     # draw = False
     draw3d = False
-    lgrcs = True
+    lgrcs = False
     device = torch.device(cuda if torch.cuda.is_available() else "cpu")
     batchsize = 1
     # weight = r'./output/test/0509upconv2_b827_001lr6/best2w.pt'
     # weight = r'./output/test/0514upconv2_b827_10/last.pt'
     # weight = r'./output/train/0605upconv4fckan_mul2347_pretrain3/last.pt'
-    weight = r'./output/train/0615upconv4fckan_mul2347pretrain_/best.pt'
+    weight = r'./output/train/0615upconv4fckan_mul2347pretrain_000/best.pt'
 
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_ctrl9090_val'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_test10'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/datasets/b827_xiezhen_small'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_val'
     rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val2'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_train'
 
-    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /'0617_upconv4_mul2347pretrain0615_val6_'), exist_ok=False))
+    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /'0619_upconv4_mul2347pretrain_val6_'), exist_ok=False))
     logdir = os.path.join(save_dir,'alog.txt')
     logger = get_logger(logdir)
     epoch = -1

@@ -6,7 +6,8 @@ import torch
 import time
 from tqdm import tqdm
 # from net.jxtnet_upConv5 import MeshAutoencoder
-from net.jxtnet_upConv4_relu import MeshAutoencoder
+from net.jxtnet_upConv4_InsNorm import MeshAutoencoder
+# from net.jxtnet_upConv4_relu import MeshAutoencoder
 # from net.jxtnet_upConv4 import MeshAutoencoder
 import torch.utils.data.dataloader as DataLoader
 # from torch.nn.parallel import DistributedDataParallel as DDP
@@ -33,12 +34,12 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-batchsize = 12 #1卡12是极限了 0卡10是极限
+batchsize = 10 #1卡12是极限了 0卡10是极限
 # epoch = 1000
-epoch = 400
+epoch = 1000
 use_preweight = True
-# use_preweight = False
-cudadevice = 'cuda:3'
+use_preweight = False
+cudadevice = 'cuda:1'
 lgrcs = True
 # lgrcs = False
 
@@ -47,7 +48,7 @@ learning_rate = 0.001  # 初始学习率
 lr_time = 20
 
 shuffle = True
-shuffle = False
+# shuffle = False
 multigpu = False 
 
 bestloss = 100000
@@ -64,8 +65,8 @@ ssims = []
 mses = []
 corrupted_files = []
 
-# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_pretrain' #T7920 
-# valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
+rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_pretrain' #T7920 
+valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_train' #T7920 
 # valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val_small'
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt' #T7920 
@@ -82,12 +83,12 @@ corrupted_files = []
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_pretrain'#T7920 pretrain
 # rcsdir = r'/mnt/f/datasets/b827_test10' #305winwsl
 # rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
-rcsdir = r'D:\datasets\mul2347_pretrain' #T640
-valdir = r'D:\datasets\mul2347_6val' #T640
+# rcsdir = r'D:\datasets\mul2347_pretrain' #T640
+# valdir = r'D:\datasets\mul2347_6val' #T640
 # pretrainweight = r'./output/train/0618upconv4_mul2347pretrain_/last.pt' #T7920
 pretrainweight = r'./output/train/0615upconv4fckan_mul2347pretrain_000/last.pt' #T7920
 
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0619upconv4_mul2347pretrain_lgrcs'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0620upconv4plus_mul2347pretrain_'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 # save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0518upconv3L1_b827_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
@@ -292,6 +293,7 @@ for i in range(epoch):
     plt.ylabel('MSE')
     plt.title('Training MSE Curve')
     plt.savefig(msesavedir)
+    plt.close()
     # plt.show()
     # if i % 50 == 0 or i == -1: #存指定倍数轮的checkpoint
     #     valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs)
