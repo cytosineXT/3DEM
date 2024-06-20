@@ -1167,8 +1167,8 @@ class MeshAutoencoder(Module):
         face_embed = self.enLN3(face_embed)
 
         face_embed = self.sage4(face_embed, face_edges)
-        face_embed = F.silu(face_embed)
-        face_embed = self.enLN4(face_embed)
+        # face_embed = F.silu(face_embed)
+        # face_embed = self.enLN4(face_embed)
         # print(f'Encoder Step图卷积用时：{(time.time()-ticc):.4f}s')
         # ticc = time.time()
 

@@ -41,7 +41,7 @@ use_preweight = True
 use_preweight = False
 cudadevice = 'cuda:1'
 lgrcs = True
-# lgrcs = False
+lgrcs = False
 
 threshold = 20
 learning_rate = 0.001  # 初始学习率
