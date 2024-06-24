@@ -39,7 +39,7 @@ batchsize = 10 #1卡12是极限了 0卡10是极限
 epoch = 1000
 use_preweight = True
 use_preweight = False
-cudadevice = 'cuda:1'
+cudadevice = 'cuda:0'
 lgrcs = True
 lgrcs = False
 
@@ -65,8 +65,13 @@ ssims = []
 mses = []
 corrupted_files = []
 
-rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_pretrain' #T7920 
-valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
+# rcsdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 Liang
+# valdir = r'/home/jiangxiaotian/datasets/mul2347_6val'
+rcsdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
+valdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
+
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_pretrain' #T7920 
+# valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_train' #T7920 
 # valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val_small'
 # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt' #T7920 
@@ -88,7 +93,7 @@ valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
 # pretrainweight = r'./output/train/0618upconv4_mul2347pretrain_/last.pt' #T7920
 pretrainweight = r'./output/train/0615upconv4fckan_mul2347pretrain_000/last.pt' #T7920
 
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0620upconv4plus_mul2347pretrain_'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "test" /'0624upconv4plus_mul2347pretrain_'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 # save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0518upconv3L1_b827_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')

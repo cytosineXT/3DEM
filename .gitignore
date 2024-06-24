@@ -3,5 +3,5 @@
 /output
 */__pycache__
 *.png
-*.txt
+# *.txt
 */ShapeNet1
