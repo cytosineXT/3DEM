@@ -86,6 +86,14 @@ def get_model_memory(model,logger):
     # print(f'模型占用{memory:.4f}GB')  # 以GB为单位
     return memory
 
+def get_model_memory_nolog(model):
+    model_parameters = filter(lambda p: p.requires_grad, model.parameters())
+    params = sum([np.prod(p.size()) for p in model_parameters])
+    memory = params * 4 / (1024**3)
+    # logger.info(f'模型占用{memory:.4f}GB')  # 以GB为单位
+    print(f'模型占用{memory:.4f}GB')  # 以GB为单位
+    return memory
+
 def get_tensor_memory(x,logger):
     memory = x.element_size() * x.nelement() / (1024**3)
     logger.info(f'Tensor变量占用{memory:.4f}GB')  # 以GB为单位

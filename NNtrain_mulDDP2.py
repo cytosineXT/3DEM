@@ -6,15 +6,17 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 import time
 from tqdm import tqdm
-from net.jxtnet_upConv4 import MeshAutoencoder
+from net.jxtnet_upConv4_InsNorm import MeshAutoencoder
 import torch.utils.data.dataloader as DataLoader
 import os
 import sys
 import re
+import matplotlib
 import matplotlib.pyplot as plt
+matplotlib.use('agg')
 from pathlib import Path
 from net.utils import increment_path, meshRCSDataset, get_logger, get_model_memory, psnr, ssim, find_matching_files, process_files
-from NNvalfast import plotRCS2, plot2DRCS
+from NNvalfast import plotRCS2, plot2DRCS, valmain
 import signal
 import datetime
 
@@ -23,7 +25,8 @@ def setup(rank, world_size):
     # os.environ['MASTER_ADDR'] = 'localhost'
     # os.environ['MASTER_PORT'] = '12356'
     print(f"Initializing process group for rank {rank}, worldsize{world_size}")
-    dist.init_process_group(backend="nccl",init_method="file:///tmp/torch_sharedfile" ,rank=rank, world_size=world_size, timeout=datetime.timedelta(minutes=1)) #草 卡在这步了
+    # dist.init_process_group(backend="nccl",init_method="file:///tmp/torch_sharedfile" ,rank=rank, world_size=world_size, timeout=datetime.timedelta(minutes=1)) #草 卡在这步了
+    dist.init_process_group(backend="gloo",init_method="file:///tmp/torch_sharedfile2" ,rank=rank, world_size=world_size, timeout=datetime.timedelta(minutes=1)) #草 卡在这步了
     # dist.init_process_group(backend="gloo", rank=rank, world_size=world_size, timeout=datetime.timedelta(seconds=20)) #草 卡在这步了
     # dist.init_process_group(backend="mpi", rank=rank, world_size=world_size, timeout=datetime.timedelta(seconds=20)) #草 卡在这步了
     print(f"Process group initialized for rank {rank}")
@@ -58,18 +61,23 @@ def main(rank, world_size):
         sys.path.append(str(ROOT))  # add ROOT to PATH
     ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-    batchsize = 2
-    epoch = 200
+    batchsize = 10 #1卡12是极限了 0卡10是极限
+    # epoch = 1000
+    epoch = 1000
     use_preweight = True
     use_preweight = False
     cudadevice = f'cuda:{rank}'
-    
+    lgrcs = True
+    lgrcs = False
+
     threshold = 20
     learning_rate = 0.001  # 初始学习率
     lr_time = 20
 
-    shuffle = False
-    multigpu = True
+    shuffle = True
+    # shuffle = False
+    # multigpu = True 
+    # multigpu = False 
 
     bestloss = 100000
     epoch_loss1 = 0.
@@ -83,8 +91,16 @@ def main(rank, world_size):
     psnrs = []
     ssims = []
     mses = []
+    corrupted_files = []
 
-    rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100'
+    rcsdir = r'/home/jiangxiaotian/datasets/mul2347_train' #T7920 Liang
+    # rcsdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 Liang
+    # valdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 Liang
+    valdir = r'/home/jiangxiaotian/datasets/mul2347_6val'
+    # rcsdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
+    # valdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
+
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_test10' #T7920 
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOpt' #T7920 
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOptpretrain' #T7920 
@@ -99,7 +115,7 @@ def main(rank, world_size):
     # rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
     pretrainweight = r'./output/train/0529upconv4ffc_MieOptpretrain3/last.pt' #T7920
     
-    save_dir = str(increment_path(Path(ROOT / "output" / "test" / '0530upconv4ffc_DDP'), exist_ok=False))
+    save_dir = str(increment_path(Path(ROOT / "output" / "train" / '0627upconv4plus_mul2347train_DDP'), exist_ok=False))
     lastsavedir = os.path.join(save_dir, 'last.pt')
     bestsavedir = os.path.join(save_dir, 'best.pt')
     lossessavedir = os.path.join(save_dir, 'loss.png')
@@ -110,7 +126,7 @@ def main(rank, world_size):
     logger = get_logger(logdir)
 
     if rank == 0:
-        logger.info(f'参数设置：batchsize={batchsize}, epoch={epoch}, use_preweight={use_preweight}, cudadevice={cudadevice}, threshold={threshold}, learning_rate={learning_rate}, lr_time={lr_time}, shuffle={shuffle}, multigpu={multigpu}')
+        logger.info(f'参数设置：batchsize={batchsize}, epoch={epoch}, use_preweight={use_preweight}, cudadevice={cudadevice}, threshold={threshold}, learning_rate={learning_rate}, lr_time={lr_time}, shuffle={shuffle}, lgrcs={lgrcs}')#, multigpu={multigpu}
         logger.info(f'数据集用{rcsdir}训练')
         logger.info(f'保存到{lastsavedir}')
 
@@ -120,8 +136,11 @@ def main(rank, world_size):
         phi = int(phi)
         freq = float(freq)
         in_em = [plane, theta, phi, freq]
-        rcs = torch.load(os.path.join(rcsdir, file))
-
+        try:
+            rcs = torch.load(os.path.join(rcsdir,file))
+        except Exception as e:
+            corrupted_files.append(os.path.join(rcsdir,file))
+            logger.info(f"Error loading file {os.path.join(rcsdir,file)}: {e}")
         in_ems.append(in_em)
         rcss.append(rcs)
 
@@ -137,8 +156,8 @@ def main(rank, world_size):
         logger.info(f"数据集文件夹大小(内存占用)：{total_size_mb:.2f} MB 或 {total_size_gb:.2f} GB")
 
     dataset = meshRCSDataset(in_ems, rcss)
-    sampler = torch.utils.data.distributed.DistributedSampler(dataset, num_replicas=world_size, rank=rank)
-    dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffle, num_workers=0, sampler=sampler)
+    sampler = torch.utils.data.distributed.DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=shuffle)
+    dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, num_workers=0, sampler=sampler)
 
     device = torch.device(cudadevice if torch.cuda.is_available() else "cpu")
     logger.info(f'device:{device}')
@@ -147,7 +166,7 @@ def main(rank, world_size):
         num_discrete_coors = 128,
         device= device
     ).to(device)
-    autoencoder = DDP(autoencoder, device_ids=[rank])
+    autoencoder = DDP(autoencoder, device_ids=[rank], find_unused_parameters=True)
 
     get_model_memory(autoencoder, logger)
 
@@ -158,7 +177,7 @@ def main(rank, world_size):
     else:
         if rank == 0:
             logger.info('未使用预训练权重，为从头训练')
-
+    autoencoder = autoencoder.to(device)
     optimizer = torch.optim.Adam(autoencoder.parameters(), lr=learning_rate, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=lr_time)
 
@@ -168,20 +187,25 @@ def main(rank, world_size):
         epoch_loss = 0.
         timeepoch = time.time()
         for in_em1, rcs1 in tqdm(dataloader, desc=f'epoch:{i+1},datasets进度,lr={scheduler.get_last_lr()[0]:.5f}', ncols=130, postfix=f'上一轮的epoch:{i},loss_mean:{(epoch_loss1/dataset.__len__()):.4f}'):
+            in_em0 = in_em1.copy()
             optimizer.zero_grad()
             objlist , ptlist = find_matching_files(in_em1[0], "./planes")
             planesur_faces, planesur_verts, planesur_faceedges, geoinfo = process_files(objlist, device)
 
-            loss, outrcs, psnr_mean, _, ssim_mean, _, mse_mean = autoencoder(
+            loss, outrcs, psnr_mean, _, ssim_mean, _, mse_mean = autoencoder( #这里使用网络，是进去跑了forward 
                 vertices = planesur_verts,
-                faces = planesur_faces,
+                faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
                 face_edges = planesur_faceedges,
-                geoinfo = geoinfo,
-                in_em = in_em1,
-                GT = rcs1.to(device),
+                geoinfo = geoinfo, #[area, volume, scale]
+                in_em = in_em1,#.to(device)
+                GT = rcs1.to(device), #这里放真值
                 logger = logger,
-                device = device
+                device = device,
+                lgrcs = lgrcs
             )
+            if lgrcs == True:
+                outrcslg = outrcs
+                outrcs = torch.pow(10, outrcs)
             if batchsize > 1:
                 loss=loss.sum()
                 loss.backward()
@@ -196,16 +220,22 @@ def main(rank, world_size):
             ssim_list.append(ssim_mean)
             mse_list.append(mse_mean)
             
-        in_em1[1:] = [tensor.to(device) for tensor in in_em1[1:]]
-        if flag == 1:
-            drawrcs = outrcs[0]
-            drawem = torch.stack(in_em1[1:]).t()[0]
-            drawGT = rcs1[0]
-            flag = 0
-        for j in range(torch.stack(in_em1[1:]).t().shape[0]):
-            if flag == 0 and torch.equal(torch.stack(in_em1[1:]).t()[j], drawem):
-                drawrcs = outrcs[j]
-                break
+    #-----------------------------------定期作图看效果小模块-------------------------------------------
+            in_em0[1:] = [tensor.to(device) for tensor in in_em0[1:]]
+            if flag == 1:
+                # print(f'rcs:{outrcs.shape},em:{in_em1}in{in_em1.shape}')
+                # print(f'rcs0{outrcs[0]==outrcs[0,:]}')
+                drawrcs = outrcs[0]
+                # drawem = torch.stack(in_em1[1:]).t()[0]
+                drawem = torch.stack(in_em0[1:]).t()[0]
+                drawGT = rcs1[0]
+                drawplane = in_em0[0][0]
+                flag = 0
+            for j in range(torch.stack(in_em0[1:]).t().shape[0]):
+                # print(f'em:{in_em1[0]},drawem:{drawem}')
+                if flag == 0 and torch.equal(torch.stack(in_em0[1:]).t()[j], drawem):
+                    drawrcs = outrcs[j]
+                    break
 
         p = psnr(drawrcs.to(device), drawGT.to(device))
         s = ssim(drawrcs.to(device), drawGT.to(device))
@@ -249,6 +279,7 @@ def main(rank, world_size):
 
         # 绘制loss曲线图
         plt.clf()
+        plt.figure(figsize=(7, 4.5))
         plt.plot(range(0, i+1), losses)
         plt.xlabel('Epoch')
         plt.ylabel('Loss')
@@ -279,7 +310,8 @@ def main(rank, world_size):
         plt.title('Training MSE Curve')
         plt.savefig(msesavedir)
         # plt.show()
-
+        if i % 50 == 0 or i == -1: #存指定倍数轮的checkpoint
+            valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs)
     if rank == 0:
         logger.info(f'训练结束时间：{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))}')
         end_time0 = time.time()
@@ -290,6 +322,7 @@ def main(rank, world_size):
 
 if __name__ == "__main__":
     world_size = torch.cuda.device_count()
+    print(world_size)
     # world_size = 1
     torch.multiprocessing.spawn(main, args=(world_size,), nprocs=world_size, join=True)
 

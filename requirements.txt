@@ -22,6 +22,7 @@ vector-quantize-pytorch>=1.12.8
 x-transformers>=1.26.0
 matplotlib
 trimesh
+jupyter
 
 #"/home/jiangxiaotian/anaconda3/envs/jxtnet2/lib/python3.9/site-packages/torch/_tensor.py", line 1087
 
