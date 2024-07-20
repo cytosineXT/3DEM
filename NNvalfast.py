@@ -1,7 +1,8 @@
 import torch
 import time
-# from net.jxtnet_upConv5 import MeshAutoencoder
-from net.jxtnet_upConv4_relu import MeshAutoencoder
+from net.jxtnet_transformerEncoder import MeshAutoencoder
+# from net.jxtnet_upConv4_InsNorm import MeshAutoencoder
+# from net.jxtnet_upConv4_relu import MeshAutoencoder
 # from net.jxtnet_upConv4 import MeshAutoencoder
 # from net.jxtnet_upConv3_KAN_TV import MeshAutoencoder
 # from net.jxtnet_upConv3 import MeshAutoencoder

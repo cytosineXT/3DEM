@@ -1,4 +1,3 @@
-'''这版带了Diffusion plugin'''
 #C:/ProgramData/Anaconda3/envs/jxtnet/python.exe -u d:/workspace/jxtnet/NNtrain_dataset.py > log0423san.txt
 # python -u NNtrain_upconv.py > ./log0430upconvtest.txt
 #SCREEN ctrl+D删除 ctrl+AD关闭 screen -S name创建 screen -r name回复 screen -ls查看list
@@ -7,7 +6,9 @@ import torch
 import time
 from tqdm import tqdm
 # from net.jxtnet_upConv5 import MeshAutoencoder
-from net.jxtnet_DiTDecoder import MeshAutoencoder
+# from net.jxtnet_transformerr import MeshAutoencoder
+from net.jxtnet_DiTGCNencoder import MeshAutoencoder
+from ditmodel import DiT
 # from net.jxtnet_upConv4_InsNorm import MeshAutoencoder
 # from net.jxtnet_upConv4_relu import MeshAutoencoder
 # from net.jxtnet_upConv4 import MeshAutoencoder
@@ -42,7 +43,7 @@ batchsize = 2 #1卡12是极限了 0卡10是极限
 epoch = 1000
 use_preweight = True
 use_preweight = False
-cudadevice = 'cuda:0'
+cudadevice = 'cuda:1'
 lgrcs = True
 lgrcs = False
 
@@ -68,11 +69,11 @@ ssims = []
 mses = []
 corrupted_files = []
 
-rcsdir = r'/home/jiangxiaotian/datasets/mul2347_train' #T7920 Liang
+# rcsdir = r'/home/jiangxiaotian/datasets/mul2347_train' #T7920 Liang
 valdir = r'/home/jiangxiaotian/datasets/mul2347_6val'
 # rcsdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
 # valdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
-# rcsdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 
+rcsdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 
 # valdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 
 
 # valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
@@ -97,7 +98,7 @@ valdir = r'/home/jiangxiaotian/datasets/mul2347_6val'
 # pretrainweight = r'./output/train/0618upconv4_mul2347pretrain_/last.pt' #T7920
 pretrainweight = r'./output/train/0615upconv4fckan_mul2347pretrain_000/last.pt' #T7920
 
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0704_dit'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "test" /'0706_dit'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 # save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0518upconv3L1_b827_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
@@ -146,11 +147,15 @@ device = torch.device(cudadevice if torch.cuda.is_available() else "cpu")
 # device = 'cpu'
 logger.info(f'device:{device}')
 
+# 模型启动在这
+hidden_size = 576
+paddingsize = 25000
 autoencoder = MeshAutoencoder( #这里实例化，是进去跑了init
     num_discrete_coors = 128,
     device= device,
-    paddingsize = 25000
+    paddingsize = paddingsize
 )
+ditdecoder = DiT(hidden_size=hidden_size, num_heads=16, depth=28, length=int(paddingsize/10))
 diffusion = create_diffusion(timestep_respacing="")
 get_model_memory(autoencoder,logger)
 
@@ -164,6 +169,7 @@ else:
 #     print(f"use {torch.cuda.device_count()} GPUs!")
 #     autoencoder = DP(autoencoder)
 autoencoder = autoencoder.to(device)
+ditdecoder = ditdecoder.to(device)
 # optimizer = torch.optim.SGD(autoencoder.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-4)
 optimizer = torch.optim.Adam(autoencoder.parameters(), lr=learning_rate, weight_decay=1e-4)
 
@@ -178,12 +184,12 @@ for i in range(epoch):
     timeepoch = time.time()
     for in_em1,rcs1 in tqdm(dataloader,desc=f'epoch:{i+1},train进度,lr={scheduler.get_last_lr()[0]:.5f}',ncols=130,postfix=f'上一轮的epoch:{i},loss_mean:{(epoch_loss1/dataset.__len__()):.4f}'):
         in_em0 = in_em1.copy()
-        optimizer.zero_grad()
+        # optimizer.zero_grad()
         objlist , ptlist = find_matching_files(in_em1[0], "./planes")
         planesur_faces, planesur_verts, planesur_faceedges, geoinfo = process_files(objlist, device)
         # logger.info(f"物体：{objlist}， verts={planesur_verts.shape}， faces={planesur_faces.shape}， edge={planesur_faceedges.shape}")
-
-        loss, outrcs, psnr_mean, _, ssim_mean, _, mse_mean = autoencoder( #这里使用网络，是进去跑了forward 
+        # y = rcs1
+        x, y = autoencoder( #这里使用网络，是进去跑了forward 
             vertices = planesur_verts,
             faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
             face_edges = planesur_faceedges,
@@ -193,72 +199,85 @@ for i in range(epoch):
             logger = logger,
             device = device,
             lgrcs = lgrcs,
-            diffusionplugin = diffusion #开始魔改了
+            # diffusionplugin = diffusion #开始魔改了
         )
-        if lgrcs == True:
-            outrcslg = outrcs
-            outrcs = torch.pow(10, outrcs)
-        if batchsize > 1:
-            # tqdm.write(f'loss:{loss.tolist()}')
-            loss=loss.sum()
-            loss.backward() #这一步很花时间，但是没加optimizer是白给的
-        else:
-            # outem = [int(in_em1[0][0]), int(in_em1[0][1]), float(f'{in_em1[0][2]:.3f}')]
-            # tqdm.write(f'em:{outem},loss:{loss.item():.4f}')
-            loss.backward()
+        t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=device)
+
+        # model_kwargs = dict(y=y)
+        # loss_dict = diffusion.training_losses(ditdecoder, x, t)
+        model_kwargs = dict(in_em=y)
+        loss_dict = diffusion.training_losses(ditdecoder, x, t, model_kwargs) #这个是完全没法用 因为他要求assert model_output.shape == (B, C * 2, *x_t.shape[2:])输出通道数是输入的两倍，才能做VB。。得想办法把原来的基础上改，不要新的。。x_t.shape=torch.Size([2, 2500, 576])  model_output.shape=torch.Size([2, 361, 720])
+        loss = loss_dict["loss"].mean()
+        
+
+        # loss, outrcs, psnr_mean, _, ssim_mean, _, mse_mean = autoencoder( #这里使用网络，是进去跑了forward 
+        #     vertices = planesur_verts,
+        #     faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
+        #     face_edges = planesur_faceedges,
+        #     geoinfo = geoinfo, #[area, volume, scale]
+        #     in_em = in_em1,#.to(device)
+        #     GT = rcs1.to(device), #这里放真值
+        #     logger = logger,
+        #     device = device,
+        #     lgrcs = lgrcs,
+        #     diffusionplugin = diffusion #开始魔改了
+        # )
+        optimizer.zero_grad()
+        loss.backward()
         epoch_loss=epoch_loss + loss.item()
         torch.nn.utils.clip_grad_norm_(autoencoder.parameters(), max_norm=threshold)
         optimizer.step()
         torch.cuda.empty_cache()
-
-        psnr_list.append(psnr_mean)
-        ssim_list.append(ssim_mean)
-        mse_list.append(mse_mean)
         
-    #-----------------------------------定期作图看效果小模块-------------------------------------------
-        in_em0[1:] = [tensor.to(device) for tensor in in_em0[1:]]
-        if flag == 1:
-            # print(f'rcs:{outrcs.shape},em:{in_em1}in{in_em1.shape}')
-            # print(f'rcs0{outrcs[0]==outrcs[0,:]}')
-            drawrcs = outrcs[0]
-            # drawem = torch.stack(in_em1[1:]).t()[0]
-            drawem = torch.stack(in_em0[1:]).t()[0]
-            drawGT = rcs1[0]
-            drawplane = in_em0[0][0]
-            flag = 0
-        for j in range(torch.stack(in_em0[1:]).t().shape[0]):
-            # print(f'em:{in_em1[0]},drawem:{drawem}')
-            if flag == 0 and torch.equal(torch.stack(in_em0[1:]).t()[j], drawem):
-                drawrcs = outrcs[j]
-                break
-                # print(drawrcs.shape)
-    p = psnr(drawrcs.to(device), drawGT.to(device))
-    s = ssim(drawrcs.to(device), drawGT.to(device))
-    m = torch.nn.functional.mse_loss(drawrcs.to(device), drawGT.to(device))
-    if GTflag == 1:
-        outGTpngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_GT.png')
-        out2DGTpngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_2DGT.png')
-        # plotRCS2(rcs=drawGT, savedir=outGTpngpath, logger=logger)
-        plot2DRCS(rcs=drawGT, savedir=out2DGTpngpath, logger=logger,cutmax=None)
-        GTflag = 0
-        logger.info('已画GT图')
-    if i == 0 or i % 50 == 0: #存指定倍数轮时画某张图看训练效果
-        outrcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}.png')
-        out2Drcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}_psnr{p.item():.2f}_ssim{s.item():.4f}_mse{m:.4f}_2D.png')
-        # plotRCS2(rcs=drawrcs, savedir=outrcspngpath, logger=logger)
-        plot2DRCS(rcs=drawrcs, savedir=out2Drcspngpath, logger=logger,cutmax=None)
-        logger.info(f'已画{i}轮图')
+        epoch_loss1 += loss
+    #     psnr_list.append(psnr_mean)
+    #     ssim_list.append(ssim_mean)
+    #     mse_list.append(mse_mean)
+        
+    # #-----------------------------------定期作图看效果小模块-------------------------------------------
+    #     in_em0[1:] = [tensor.to(device) for tensor in in_em0[1:]]
+    #     if flag == 1:
+    #         # print(f'rcs:{outrcs.shape},em:{in_em1}in{in_em1.shape}')
+    #         # print(f'rcs0{outrcs[0]==outrcs[0,:]}')
+    #         drawrcs = outrcs[0]
+    #         # drawem = torch.stack(in_em1[1:]).t()[0]
+    #         drawem = torch.stack(in_em0[1:]).t()[0]
+    #         drawGT = rcs1[0]
+    #         drawplane = in_em0[0][0]
+    #         flag = 0
+    #     for j in range(torch.stack(in_em0[1:]).t().shape[0]):
+    #         # print(f'em:{in_em1[0]},drawem:{drawem}')
+    #         if flag == 0 and torch.equal(torch.stack(in_em0[1:]).t()[j], drawem):
+    #             drawrcs = outrcs[j]
+    #             break
+    #             # print(drawrcs.shape)
+    # p = psnr(drawrcs.to(device), drawGT.to(device))
+    # s = ssim(drawrcs.to(device), drawGT.to(device))
+    # m = torch.nn.functional.mse_loss(drawrcs.to(device), drawGT.to(device))
+    # if GTflag == 1:
+    #     outGTpngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_GT.png')
+    #     out2DGTpngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_2DGT.png')
+    #     # plotRCS2(rcs=drawGT, savedir=outGTpngpath, logger=logger)
+    #     plot2DRCS(rcs=drawGT, savedir=out2DGTpngpath, logger=logger,cutmax=None)
+    #     GTflag = 0
+    #     logger.info('已画GT图')
+    # if i == 0 or i % 50 == 0: #存指定倍数轮时画某张图看训练效果
+    #     outrcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}.png')
+    #     out2Drcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}_psnr{p.item():.2f}_ssim{s.item():.4f}_mse{m:.4f}_2D.png')
+    #     # plotRCS2(rcs=drawrcs, savedir=outrcspngpath, logger=logger)
+    #     plot2DRCS(rcs=drawrcs, savedir=out2Drcspngpath, logger=logger,cutmax=None)
+    #     logger.info(f'已画{i}轮图')
 
-    epoch_loss1 = epoch_loss
+    # epoch_loss1 = epoch_loss
     epoch_mean_loss = epoch_loss1/dataset.__len__()
     losses.append(epoch_mean_loss)  # 保存当前epoch的loss以备绘图
 
-    epoch_psnr = sum(psnr_list)/len(psnr_list)
-    epoch_ssim = sum(ssim_list)/len(ssim_list)
-    epoch_mse = sum(mse_list)/len(mse_list)
-    psnrs.append(epoch_psnr)
-    ssims.append(epoch_ssim)
-    mses.append(epoch_mse)
+    # epoch_psnr = sum(psnr_list)/len(psnr_list)
+    # epoch_ssim = sum(ssim_list)/len(ssim_list)
+    # epoch_mse = sum(mse_list)/len(mse_list)
+    # psnrs.append(epoch_psnr)
+    # ssims.append(epoch_ssim)
+    # mses.append(epoch_mse)
 
     if bestloss > epoch_mean_loss:
         bestloss = epoch_mean_loss
@@ -271,7 +290,8 @@ for i in range(epoch):
     #     torch.save(autoencoder.state_dict(), checkpointsavedir) #T7920
 
     logger.info(f'↓-----------------本epoch用时：{time.strftime("%H:%M:%S", time.gmtime(time.time()-timeepoch))}-----------------↓')
-    logger.info(f'↑----epoch:{i+1},loss:{epoch_mean_loss:.4f},psnr:{epoch_psnr:.2f},ssim:{epoch_ssim:.4f},mse:{epoch_mse:.4f}----↑')
+    logger.info(f'↑----epoch:{i+1},loss:{epoch_mean_loss:.4f}----↑')
+    # logger.info(f'↑----epoch:{i+1},loss:{epoch_mean_loss:.4f},psnr:{epoch_psnr:.2f},ssim:{epoch_ssim:.4f},mse:{epoch_mse:.4f}----↑')
     
     # 绘制loss曲线图
     plt.clf()
@@ -282,30 +302,30 @@ for i in range(epoch):
     plt.title('Training Loss Curve')
     plt.savefig(lossessavedir)
     
-    # 绘制psnr曲线图
-    plt.clf()
-    plt.plot(range(0, i+1), psnrs)
-    plt.xlabel('Epoch')
-    plt.ylabel('PSNR')
-    plt.title('Training PSNR Curve')
-    plt.savefig(psnrsavedir)
+    # # 绘制psnr曲线图
+    # plt.clf()
+    # plt.plot(range(0, i+1), psnrs)
+    # plt.xlabel('Epoch')
+    # plt.ylabel('PSNR')
+    # plt.title('Training PSNR Curve')
+    # plt.savefig(psnrsavedir)
     
-    # 绘制ssim曲线图
-    plt.clf()
-    plt.plot(range(0, i+1), ssims)
-    plt.xlabel('Epoch')
-    plt.ylabel('SSIM')
-    plt.title('Training SSIM Curve')
-    plt.savefig(ssimsavedir)
+    # # 绘制ssim曲线图
+    # plt.clf()
+    # plt.plot(range(0, i+1), ssims)
+    # plt.xlabel('Epoch')
+    # plt.ylabel('SSIM')
+    # plt.title('Training SSIM Curve')
+    # plt.savefig(ssimsavedir)
 
-    # 绘制mse曲线图
-    plt.clf()
-    plt.plot(range(0, i+1), mses)
-    plt.xlabel('Epoch')
-    plt.ylabel('MSE')
-    plt.title('Training MSE Curve')
-    plt.savefig(msesavedir)
-    plt.close()
+    # # 绘制mse曲线图
+    # plt.clf()
+    # plt.plot(range(0, i+1), mses)
+    # plt.xlabel('Epoch')
+    # plt.ylabel('MSE')
+    # plt.title('Training MSE Curve')
+    # plt.savefig(msesavedir)
+    # plt.close()
     # plt.show()
     # if i % 50 == 0 or i == -1: #存指定倍数轮的checkpoint
         # valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs)

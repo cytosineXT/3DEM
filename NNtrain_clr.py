@@ -1,16 +1,8 @@
-'''这版带了Diffusion plugin'''
-#C:/ProgramData/Anaconda3/envs/jxtnet/python.exe -u d:/workspace/jxtnet/NNtrain_dataset.py > log0423san.txt
-# python -u NNtrain_upconv.py > ./log0430upconvtest.txt
-#SCREEN ctrl+D删除 ctrl+AD关闭 screen -S name创建 screen -r name回复 screen -ls查看list
-#tmux attach -t name恢复 
 import torch
 import time
 from tqdm import tqdm
-# from net.jxtnet_upConv5 import MeshAutoencoder
-from net.jxtnet_DiTDecoder import MeshAutoencoder
 # from net.jxtnet_upConv4_InsNorm import MeshAutoencoder
-# from net.jxtnet_upConv4_relu import MeshAutoencoder
-# from net.jxtnet_upConv4 import MeshAutoencoder
+from net.jxtnet_transformerEncoder import MeshAutoencoder
 import torch.utils.data.dataloader as DataLoader
 # from torch.nn.parallel import DistributedDataParallel as DDP
 # from torch.nn.parallel import DataParallel as DP
@@ -23,7 +15,7 @@ matplotlib.use('agg')
 from pathlib import Path
 from net.utils import increment_path, meshRCSDataset, get_logger, get_model_memory, psnr, ssim, find_matching_files, process_files #, get_tensor_memory, transform_to_log_coordinates
 from NNvalfast import plotRCS2, plot2DRCS, valmain
-from diffusion import create_diffusion
+# from diffusion import create_diffusion
 # from pytorch_memlab import profile, set_target_gpu
 
 
@@ -37,7 +29,7 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-batchsize = 2 #1卡12是极限了 0卡10是极限
+batchsize = 1 #1卡12是极限了 0卡10是极限
 # epoch = 1000
 epoch = 1000
 use_preweight = True
@@ -68,37 +60,12 @@ ssims = []
 mses = []
 corrupted_files = []
 
-rcsdir = r'/home/jiangxiaotian/datasets/mul2347_train' #T7920 Liang
+rcsdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 Liang
+# rcsdir = r'/home/jiangxiaotian/datasets/mul2347_train' #T7920 Liang
 valdir = r'/home/jiangxiaotian/datasets/mul2347_6val'
-# rcsdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
-# valdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
-# rcsdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 
-# valdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 
-
-# valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
-# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_train' #T7920 
-# valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val_small'
-# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt' #T7920 
-# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100' #T7920 
-# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_test10' #T7920 
-# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOpt' #T7920 
-# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOptpretrain' #T7920 
-# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_MieOpt' #T7920 
-# rcsdir = r"/mnt/Disk/jiangxiaotian/puredatasets/b82731071bd39b66e4c15ad8a2edd2e" #T7920 
-# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen' #T7920 
-# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_val' #T7920 1300个
-# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_ctrl9090_test10' #T7920 
-# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_test10'#T7920 test
-# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_pretrain'#T7920 pretrain
-# rcsdir = r'/mnt/f/datasets/b827_test10' #305winwsl
-# rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
-# rcsdir = r'D:\datasets\mul2347_pretrain' #T640
-# valdir = r'D:\datasets\mul2347_6val' #T640
-# pretrainweight = r'./output/train/0618upconv4_mul2347pretrain_/last.pt' #T7920
 pretrainweight = r'./output/train/0615upconv4fckan_mul2347pretrain_000/last.pt' #T7920
 
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0704_dit'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
-# save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0518upconv3L1_b827_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0719_trans_pretrain'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 lossessavedir = os.path.join(save_dir,'loss.png')
@@ -108,6 +75,8 @@ msesavedir = os.path.join(save_dir,'mse.png')
 logdir = os.path.join(save_dir,'log.txt')
 logger = get_logger(logdir)
 
+logger.info(f'使用from net.jxtnet_upConv4_InsNorm import MeshAutoencoder')
+# logger.info(f'使用jxtnet_transformerEncoder.py')
 logger.info(f'参数设置：batchsize={batchsize}, epoch={epoch}, use_preweight={use_preweight}, cudadevice={cudadevice}, threshold={threshold}, learning_rate={learning_rate}, lr_time={lr_time}, shuffle={shuffle}, multigpu={multigpu}, lgrcs={lgrcs}')
 logger.info(f'数据集用{rcsdir}训练')
 logger.info(f'保存到{lastsavedir}')
@@ -139,8 +108,6 @@ logger.info(f"数据集文件夹大小(内存占用)：{total_size_mb:.2f} MB �
 
 dataset = meshRCSDataset(in_ems, rcss)
 dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffle, num_workers=0) #创建DataLoader迭代器
-# end_timedata = time.time()
-# print('数据集加载完成，耗时:',time.strftime("%H:%M:%S", time.gmtime(end_timedata-start_timedata)))
 
 device = torch.device(cudadevice if torch.cuda.is_available() else "cpu")
 # device = 'cpu'
@@ -149,9 +116,9 @@ logger.info(f'device:{device}')
 autoencoder = MeshAutoencoder( #这里实例化，是进去跑了init
     num_discrete_coors = 128,
     device= device,
-    paddingsize = 25000
+    paddingsize = 22500
 )
-diffusion = create_diffusion(timestep_respacing="")
+# diffusion = create_diffusion(timestep_respacing="")
 get_model_memory(autoencoder,logger)
 
 if use_preweight == True:
@@ -160,9 +127,6 @@ if use_preweight == True:
 else:
     logger.info('未使用预训练权重，为从头训练')
 
-# if device.type=='cuda' and torch.cuda.device_count() > 1 and multigpu == True:
-#     print(f"use {torch.cuda.device_count()} GPUs!")
-#     autoencoder = DP(autoencoder)
 autoencoder = autoencoder.to(device)
 # optimizer = torch.optim.SGD(autoencoder.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-4)
 optimizer = torch.optim.Adam(autoencoder.parameters(), lr=learning_rate, weight_decay=1e-4)
@@ -193,7 +157,7 @@ for i in range(epoch):
             logger = logger,
             device = device,
             lgrcs = lgrcs,
-            diffusionplugin = diffusion #开始魔改了
+            # diffusionplugin = diffusion #开始魔改了
         )
         if lgrcs == True:
             outrcslg = outrcs
@@ -203,8 +167,8 @@ for i in range(epoch):
             loss=loss.sum()
             loss.backward() #这一步很花时间，但是没加optimizer是白给的
         else:
-            # outem = [int(in_em1[0][0]), int(in_em1[0][1]), float(f'{in_em1[0][2]:.3f}')]
-            # tqdm.write(f'em:{outem},loss:{loss.item():.4f}')
+            outem = [int(in_em1[1]), int(in_em1[2]), float(f'{in_em1[3].item():.3f}')]
+            tqdm.write(f'em:{outem},loss:{loss.item():.4f}')
             loss.backward()
         epoch_loss=epoch_loss + loss.item()
         torch.nn.utils.clip_grad_norm_(autoencoder.parameters(), max_norm=threshold)
@@ -307,8 +271,8 @@ for i in range(epoch):
     plt.savefig(msesavedir)
     plt.close()
     # plt.show()
-    # if i % 50 == 0 or i == -1: #存指定倍数轮的checkpoint
-        # valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs)
+    if i % 20 == 0 or i == -1: #存指定倍数轮的checkpoint
+        valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs)
 
 logger.info(f"损坏的文件：{corrupted_files}")
 logger.info(f'训练结束时间：{time.strftime("%Y-%m-%d %H:%M:%S",time.localtime(time.time()))}')
