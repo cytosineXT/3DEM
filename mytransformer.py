@@ -999,19 +999,19 @@ class TransformerWithPooling(Module):
             [TransformerEncoderLayer(d_model, nhead, dim_feedforward, activation=activation)
              for _ in range(num_layers)]
         )
-        self.finallayer = TransformerEncoderQueryVectorLayer(d_model, nhead, dim_feedforward, activation=activation)
+        # self.finallayer = TransformerEncoderQueryVectorLayer(d_model, nhead, dim_feedforward, activation=activation)
         self.pool_size = pool_size
 
     def forward(self, src):
         output = src
         for layer in self.layers:
+            # print(1)
             output = layer(output)
-            print(output.shape, output.shape[0] * output.shape[1] * output.shape[2])
+            # print(output.shape, output.shape[0] * output.shape[1] * output.shape[2])
 
             # Apply pooling to reduce sequence length
             output = self.pooling(output)
-            print(1)
-            print(output.shape, output.shape[0] * output.shape[1] * output.shape[2])
+            # print(output.shape, output.shape[0] * output.shape[1] * output.shape[2])
         return output
 
     def pooling(self, x):

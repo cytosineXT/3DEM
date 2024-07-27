@@ -4,7 +4,7 @@ import torch
 import time
 from tqdm import tqdm
 # from net.jxtnet_upConv4_InsNorm import MeshAutoencoder
-from net.jxtnet_transformerEncoder import MeshAutoencoder
+from net.jxtnet_pureTrans import MeshEncoderDecoder
 import torch.utils.data.dataloader as DataLoader
 # from torch.nn.parallel import DistributedDataParallel as DDP
 # from torch.nn.parallel import DataParallel as DP
@@ -31,7 +31,7 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-batchsize = 1 #1卡12是极限了 0卡10是极限
+batchsize = 6 #1卡12是极限了 0卡10是极限
 # epoch = 1000
 epoch = 1000
 use_preweight = True
@@ -41,7 +41,7 @@ lgrcs = True
 lgrcs = False
 
 threshold = 20
-learning_rate = 0.001  # 初始学习率
+learning_rate = 0.005  # 初始学习率
 lr_time = 20
 
 shuffle = True
@@ -62,12 +62,14 @@ ssims = []
 mses = []
 corrupted_files = []
 
-# rcsdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 Liang
-rcsdir = r'/home/jiangxiaotian/datasets/mul2347_train' #T7920 Liang
+# rcsdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
+rcsdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 Liang
+# rcsdir = r'/home/jiangxiaotian/datasets/mul2347_train' #T7920 Liang
 valdir = r'/home/jiangxiaotian/datasets/mul2347_6val'
+# valdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
 pretrainweight = r'./output/train/0615upconv4fckan_mul2347pretrain_000/last.pt' #T7920
 
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0724_trans_train'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0727_puretrans_0.005lr_pretrain'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 lossessavedir = os.path.join(save_dir,'loss.png')
@@ -115,7 +117,7 @@ device = torch.device(cudadevice if torch.cuda.is_available() else "cpu")
 # device = 'cpu'
 logger.info(f'device:{device}')
 
-autoencoder = MeshAutoencoder( #这里实例化，是进去跑了init
+autoencoder = MeshEncoderDecoder( #这里实例化，是进去跑了init
     num_discrete_coors = 128,
     device= device,
     paddingsize = 22500
@@ -130,10 +132,9 @@ else:
     logger.info('未使用预训练权重，为从头训练')
 
 autoencoder = autoencoder.to(device)
-# optimizer = torch.optim.SGD(autoencoder.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-4)
-optimizer = torch.optim.Adam(autoencoder.parameters(), lr=learning_rate, weight_decay=1e-4)
-
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=lr_time)# CosineAnnealingLR使用余弦函数调整学习率，可以更平滑地调整学习率
+optimizer = torch.optim.SGD(autoencoder.parameters(), lr=learning_rate, momentum=0.9, weight_decay=1e-4)
+# optimizer = torch.optim.Adam(autoencoder.parameters(), lr=learning_rate, weight_decay=1e-4)
+# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=lr_time)# CosineAnnealingLR使用余弦函数调整学习率，可以更平滑地调整学习率
 
 flag = 1
 GTflag = 1
@@ -142,7 +143,8 @@ for i in range(epoch):
     epoch_loss = 0.
     # tqdm.write(f'epoch:{i+1}')
     timeepoch = time.time()
-    for in_em1,rcs1 in tqdm(dataloader,desc=f'epoch:{i+1},train进度,lr={scheduler.get_last_lr()[0]:.5f}',ncols=130,postfix=f'上一轮的epoch:{i},loss_mean:{(epoch_loss1/dataset.__len__()):.4f}'):
+    for in_em1,rcs1 in tqdm(dataloader,desc=f'epoch:{i+1},train进度',ncols=130,postfix=f'上一轮的epoch:{i},loss_mean:{(epoch_loss1/dataset.__len__()):.4f}'):
+    # for in_em1,rcs1 in tqdm(dataloader,desc=f'epoch:{i+1},train进度,lr={scheduler.get_last_lr()[0]:.5f}',ncols=130,postfix=f'上一轮的epoch:{i},loss_mean:{(epoch_loss1/dataset.__len__()):.4f}'):
         in_em0 = in_em1.copy()
         optimizer.zero_grad()
         objlist , ptlist = find_matching_files(in_em1[0], "./planes")
@@ -189,7 +191,7 @@ for i in range(epoch):
             drawrcs = outrcs[0]
             # drawem = torch.stack(in_em1[1:]).t()[0]
             drawem = torch.stack(in_em0[1:]).t()[0]
-            drawGT = rcs1[0]
+            drawGT = rcs1[0][:-1,:]
             drawplane = in_em0[0][0]
             flag = 0
         for j in range(torch.stack(in_em0[1:]).t().shape[0]):
@@ -231,7 +233,7 @@ for i in range(epoch):
         torch.save(autoencoder.state_dict(), bestsavedir)
     torch.save(autoencoder.state_dict(), lastsavedir) #T7920
 
-    scheduler.step()
+    # scheduler.step()
     # if i % 20 == 0: #存指定倍数轮的checkpoint
     #     checkpointsavedir = os.path.join(save_dir,f'epoch{i}.pt')
     #     torch.save(autoencoder.state_dict(), checkpointsavedir) #T7920

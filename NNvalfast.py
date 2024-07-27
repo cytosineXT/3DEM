@@ -1,6 +1,7 @@
 import torch
 import time
-from net.jxtnet_transformerEncoder import MeshAutoencoder
+from net.jxtnet_pureTrans import MeshEncoderDecoder
+# from net.jxtnet_transformerEncoder import MeshAutoencoder
 # from net.jxtnet_upConv4_InsNorm import MeshAutoencoder
 # from net.jxtnet_upConv4_relu import MeshAutoencoder
 # from net.jxtnet_upConv4 import MeshAutoencoder
@@ -187,7 +188,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
     if trainval == False:
         logger.info(f'device:{device}')
 
-    autoencoder = MeshAutoencoder(num_discrete_coors = 128).to(device) #这里实例化，是进去跑了init
+    autoencoder = MeshEncoderDecoder(num_discrete_coors = 128).to(device) #这里实例化，是进去跑了init
     autoencoder.load_state_dict(torch.load(weight), strict=False)
     # autoencoder = autoencoder.to(device)
     #-------------------------------------------------------------------------------------
@@ -201,7 +202,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
             loss, outrcs, _, psnrlist, _, ssimlist, mse = autoencoder( #这里使用网络，是进去跑了forward
                 vertices = planesur_verts,
                 faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
-                face_edges = planesur_faceedges,
+                # face_edges = planesur_faceedges,
                 geoinfo = geoinfo, #[area, volume, scale]
                 in_em = in_em1,#.to(device)
                 GT = rcs1.to(device), #这里放真值

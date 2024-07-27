@@ -17,6 +17,12 @@ from einops.layers.torch import Rearrange
 
 from net.utils import transform_to_log_coordinates, batch_psnr, batch_ssim
 import numpy as np
+from mytransformer import PositionalEncoding,TransformerWithPooling
+from myswinunet import SwinTransformerSys
+
+def checksize(x):
+    print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
+    return 1
 
 def total_variation(images):
     ndims = images.dim()
@@ -332,7 +338,7 @@ def discretize(
 
 
 # main classes
-class MeshAutoencoder(Module):
+class MeshEncoderDecoder(Module):
     @beartype
     def __init__(
         self,
@@ -402,9 +408,17 @@ class MeshAutoencoder(Module):
         self.project_in2 = nn.Linear(1057, hidden_size)
 
         # jxt transformer encoder
-        self.transencoder = nn.TransformerEncoder(nn.TransformerEncoderLayer(d_model=hidden_size, nhead=8, dim_feedforward=256),num_layers=6).to(device)
+        # self.transencoder = nn.TransformerEncoder(nn.TransformerEncoderLayer(d_model=hidden_size, nhead=8, dim_feedforward=256),num_layers=6).to(device)
         #----------------------------------------------------jxt encoder----------------------------------------------------------
-
+        self.transformer_model = TransformerWithPooling(d_model=hidden_size, nhead=4, dim_feedforward=256, num_layers=6, pool_size=2, activation='silu').to(device)
+        self.pe = PositionalEncoding(d_model=hidden_size).to(device)
+        self.conv1d1 = nn.Conv1d(576, 1, kernel_size=1, stride=1, dilation=1 ,padding=0).to(device)
+        self.fc1d1 = nn.Sequential(
+                nn.Linear(351, 351),
+                nn.SiLU(),
+                nn.Linear(351, 96*45*90),
+                nn.LayerNorm(96*45*90)).to(device)
+        self.swinunet = SwinTransformerSys(embed_dim=12,window_size=9).to(device)
 
         #----------------------------------------------------jxt decoder----------------------------------------------------------
         # self.conv1d1 = nn.Conv1d(self.hidden_size, self.hidden_size, kernel_size=10, stride=10, dilation=1 ,padding=0)
@@ -413,30 +427,30 @@ class MeshAutoencoder(Module):
         #     nn.SiLU(),
         #     nn.Linear(self.hidden_size, self.hidden_size, bias=True,device=device),
         # )
-        self.conv1d1 = nn.Conv1d(785, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
-        # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
-        self.fc1d1 = nn.Linear(2250, middim*45*90)
-        self.upconv1 = nn.ConvTranspose2d(middim, int(middim / 2), kernel_size=2, stride=2)
-        self.in1 = nn.InstanceNorm2d(int(middim / 2))
-        self.conv1_1 = nn.Conv2d(int(middim / 2), int(middim / 2), kernel_size=3, stride=1, padding=1)
-        self.in1_1 = nn.InstanceNorm2d(int(middim / 2))
-        self.conv1_2 = nn.Conv2d(int(middim / 2), int(middim / 2), kernel_size=3, stride=1, padding=1)
-        self.in1_2 = nn.InstanceNorm2d(int(middim / 2))
+        # self.conv1d1 = nn.Conv1d(785, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        # # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        # self.fc1d1 = nn.Linear(2250, middim*45*90)
+        # self.upconv1 = nn.ConvTranspose2d(middim, int(middim / 2), kernel_size=2, stride=2)
+        # self.in1 = nn.InstanceNorm2d(int(middim / 2))
+        # self.conv1_1 = nn.Conv2d(int(middim / 2), int(middim / 2), kernel_size=3, stride=1, padding=1)
+        # self.in1_1 = nn.InstanceNorm2d(int(middim / 2))
+        # self.conv1_2 = nn.Conv2d(int(middim / 2), int(middim / 2), kernel_size=3, stride=1, padding=1)
+        # self.in1_2 = nn.InstanceNorm2d(int(middim / 2))
 
-        self.upconv2 = nn.ConvTranspose2d(int(middim / 2), int(middim / 4), kernel_size=2, stride=2)
-        self.in2 = nn.InstanceNorm2d(int(middim / 4))
-        self.conv2_1 = nn.Conv2d(int(middim / 4), int(middim / 4), kernel_size=3, stride=1, padding=1)
-        self.in2_1 = nn.InstanceNorm2d(int(middim / 4))
-        self.conv2_2 = nn.Conv2d(int(middim / 4), int(middim / 4), kernel_size=3, stride=1, padding=1)
-        self.in2_2 = nn.InstanceNorm2d(int(middim / 4))
+        # self.upconv2 = nn.ConvTranspose2d(int(middim / 2), int(middim / 4), kernel_size=2, stride=2)
+        # self.in2 = nn.InstanceNorm2d(int(middim / 4))
+        # self.conv2_1 = nn.Conv2d(int(middim / 4), int(middim / 4), kernel_size=3, stride=1, padding=1)
+        # self.in2_1 = nn.InstanceNorm2d(int(middim / 4))
+        # self.conv2_2 = nn.Conv2d(int(middim / 4), int(middim / 4), kernel_size=3, stride=1, padding=1)
+        # self.in2_2 = nn.InstanceNorm2d(int(middim / 4))
 
-        self.upconv3 = nn.ConvTranspose2d(int(middim / 4), int(middim / 8), kernel_size=2, stride=2, output_padding=1)
-        self.in3 = nn.InstanceNorm2d(int(middim / 8))
-        self.conv3_1 = nn.Conv2d(int(middim / 8), int(middim / 8), kernel_size=3, stride=1, padding=1)
-        self.in3_1 = nn.InstanceNorm2d(int(middim / 8))
-        self.conv3_2 = nn.Conv2d(int(middim / 8), int(middim / 8), kernel_size=3, stride=1, padding=1)
-        self.in3_2 = nn.InstanceNorm2d(int(middim / 8))
-        self.conv1x1 = nn.Conv2d(int(middim / 8), 1, kernel_size=1, stride=1, padding=0)
+        # self.upconv3 = nn.ConvTranspose2d(int(middim / 4), int(middim / 8), kernel_size=2, stride=2, output_padding=1)
+        # self.in3 = nn.InstanceNorm2d(int(middim / 8))
+        # self.conv3_1 = nn.Conv2d(int(middim / 8), int(middim / 8), kernel_size=3, stride=1, padding=1)
+        # self.in3_1 = nn.InstanceNorm2d(int(middim / 8))
+        # self.conv3_2 = nn.Conv2d(int(middim / 8), int(middim / 8), kernel_size=3, stride=1, padding=1)
+        # self.in3_2 = nn.InstanceNorm2d(int(middim / 8))
+        # self.conv1x1 = nn.Conv2d(int(middim / 8), 1, kernel_size=1, stride=1, padding=0)
         #----------------------------------------------------jxt decoder----------------------------------------------------------
 
 
@@ -536,12 +550,20 @@ class MeshAutoencoder(Module):
         # next prepare the face_mask for using masked_select and masked_scatter 然后准备facemask
         orig_face_embed_shape = face_embed.shape[:2]
         # face_embed = face_embed[face_mask]
-        face_embed = face_embed.reshape(-1, face_embed.shape[-1])
+        # face_embed = face_embed.reshape(-1, face_embed.shape[-1]) 
         # print(f'Encoder Step7 感觉可删用时：{(time.time()-ticc):.4f}s')
         # ticc = time.time()
 
+        '''
+        Transformer输入：   (seq_len, batch_size, C)    (L B C)
+        1DConv输入：        (batch_size, C, seq_len)
+        2DConv输入：        (batch_size, C, H, W)
+        Linear输入：        仅对最后一个维度从输入变成输出
+        '''
         face_embed = face_embed.reshape(-1,face_embed.shape[0],face_embed.shape[-1])#从(1,25000,576)变成(25000,1,576)
-        face_embed = self.transencoder(face_embed)
+        '''(L B C)'''
+        face_embed = self.pe(face_embed)
+        face_embed = self.transformer_model(face_embed)
         face_embed = face_embed.reshape(-1,face_embed.shape[0],face_embed.shape[-1])#从(25000,1,576)变回(1,25000,576)
 
         shape = (*orig_face_embed_shape, face_embed.shape[-1])# (1, 33564, 576) = (*torch.Size([1, 33564]), 576)
@@ -561,72 +583,20 @@ class MeshAutoencoder(Module):
         x,
         em_embed,#torch.Size([2, 20804, 3, 64]) , torch.Size([2, 20804, 1, 16]) 64*3+16=204 +1=785
     ):
-        x = torch.cat([x, em_embed], dim=2) #成了576+209=785维了
-        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
-        pad_size = 22500 - x.size(1)
-        x = F.pad(x, (0, 0, 0, pad_size)) #x.shape=torch.Size([2, 20804, 576])
-        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
-
-        x = x.view(x.size(0), -1, 22500)  # adjust to match the input shape, 1,576,33564
-        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
-        
-        # ------------------------1D Conv+FC-----------------------------
+        #---------------conv1d+fc bottleneck---------------
+        x = x.reshape(x.shape[1], x.shape[2], -1)  # 1DConv输入：Reshape to (batch_size, input_channel, seq_len)
+        checksize(x)
         x = self.conv1d1(x)
-        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
-
+        checksize(x)
         x = self.fc1d1(x)
-        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
+        checksize(x)
 
-        x = x.view(x.size(0), -1, 45, 90)
-        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
-
-        # ------------------------2D upConv------------------------------
-        x = self.upconv1(x)
-        x = F.silu(x)
-        x = self.in1(x)
-
-        x = self.conv1_1(x)
-        x = F.silu(x)
-        x = self.in1_1(x)
-
-        x = self.conv1_2(x)
-        x = F.silu(x)
-        x = self.in1_2(x)
-
-        x = self.upconv2(x)
-        x = F.silu(x)
-        x = self.in2(x)
-
-        x = self.conv2_1(x)
-        x = F.silu(x)
-        x = self.in2_1(x)
-
-        x = self.conv2_2(x)
-        x = F.silu(x)
-        x = self.in2_2(x)
-
-        x = self.upconv3(x)
-        x = F.silu(x)
-        x = self.in3(x)
-
-        x = self.conv3_1(x)
-        x = F.silu(x)
-        x = self.in3_1(x)
-
-        x = self.conv3_2(x)
-        x = F.silu(x)
-        x = self.in3_2(x)
-
-        x = self.conv1x1(x)
-        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
-        # x = self.huigui(x)
-
-        x = x[:, :, :, :-1]
-        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
-        # print(f'Decodr用时：{(time.time()-time0):.4f}s')
+        #-------------SwinTransformer Decoder--------------
+        x = x.reshape(x.shape[0],45*90,-1)
+        x = self.swinunet(x)
+        checksize(x)
         return x.squeeze(dim=1)
 
-    # @numba.jit() 
     @beartype
     def forward(
         self,
@@ -640,34 +610,22 @@ class MeshAutoencoder(Module):
         device,
         lgrcs,
     ):
-        ticc = time.time()
-        # face_mask = reduce(faces != self.pad_id, 'b nf c -> b nf', 'all')
 #------------------------------------------------------------------进Encoder---------------------------------------------------------------------------------------------
         '''torch.Size([1, 33564, 3])'''
         encoded, __, em_embed, in_em2 = self.encode( #从这儿进encode里 返回的encoded就是那一个跑了一溜SAGEConv得到的face_embed.size = torch.Size([1, 33564, 576]), face_coordinates.shape = torch.Size([1, 33564, 9])是一个面3个点9个坐标点？为啥一个面是tensor([35, 60, 55, 35, 60, 55, 35, 60, 55]) 我知道了因为128^3离散化了
             vertices = vertices, #顶点
             faces = faces, #面
-            # face_mask = face_mask, #面mask
             geoinfo = geoinfo,
             return_face_coordinates = True,
             in_em = in_em,
             logger = logger
         )
-        # logger.info(f'Encoder用时：{(time.time()-ticc):.4f}s')
-        # ticc = time.time()
 
 #------------------------------------------------------------------进Decoder---------------------------------------------------------------------------------------------
         decoded = self.decode( #从这儿进decoder里，进decoder的只有quantized，没有codes！所以是什么我也不用关心了其实，我只要把他大小对准塞进去就行。
             encoded, #quantized.shape = torch.Size([1, 33564, 576])
-            # quantized, #quantized.shape = torch.Size([1, 33564, 576])
             em_embed,
-            #in_em_angle_vec
-            # in_em=in_em2,
-            # diffusion = diffusionplugin
         )
-        # logger.info(f'Decoder用时：{(time.time()-ticc):.4f}s')
-        # ticc = time.time()
-        '''torch.Size([1, 361, 720])'''
 #------------------------------------------------------------------出Decoder了，后面都是算loss等后处理---------------------------------------------------------------------
 
         #平滑后处理：中值滤波+高斯滤波+修改后的smoothloss
@@ -679,6 +637,7 @@ class MeshAutoencoder(Module):
         if GT == None:
             return decoded
         else:
+            GT = GT[:,:-1,:] #361*720变360*720
             if lgrcs == True:
                 epsilon = 0.001 #防止lg0的鲁棒机制
                 # logger.info(f'初始GT:{GT[0]}')
@@ -686,7 +645,6 @@ class MeshAutoencoder(Module):
                 # logger.info(f'lg后GT:{GT[0]}')
                 # logger.info(f'再变回去的GT:{torch.pow(10, GT)[0]}')
                 # GT = torch.pow(10, GT) #反变换在这里
-
             TVL1loss = TVL1Loss(beta=0.1)
             loss = TVL1loss(decoded,GT)/(GT.shape[0])
             psnr_list = batch_psnr(decoded, GT)
