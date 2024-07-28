@@ -15,13 +15,19 @@ from beartype.typing import Tuple
 from einops import rearrange, reduce, pack
 from einops.layers.torch import Rearrange
 
-from net.utils import transform_to_log_coordinates, batch_psnr, batch_ssim
+from net.utils import transform_to_log_coordinates, psnr, ssim
 import numpy as np
 from mytransformer import PositionalEncoding,TransformerWithPooling
 from myswinunet import SwinTransformerSys
 
+def toc(tic):
+    print(f'耗时{time.time() - tic:.4f}s')
+    tic = time.time()
+    return tic
+
 def checksize(x):
-    print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
+    1
+    # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
     return 1
 
 def total_variation(images):
@@ -32,14 +38,16 @@ def total_variation(images):
         pixel_dif1 = images[1:, :, :] - images[:-1, :, :]
         pixel_dif2 = images[:, 1:, :] - images[:, :-1, :]
         # Sum for all axis.
-        tot_var = torch.sum(torch.abs(pixel_dif1)) + torch.sum(torch.abs(pixel_dif2))
+        tot_var = torch.mean(torch.abs(pixel_dif1)) + torch.mean(torch.abs(pixel_dif2))
+        # tot_var = torch.sum(torch.abs(pixel_dif1)) + torch.sum(torch.abs(pixel_dif2))
     elif ndims == 4:
         # The input is a batch of images with shape: [batch, height, width, channels].
         # Calculate the difference of neighboring pixel-values.
         pixel_dif1 = images[:, 1:, :, :] - images[:, :-1, :, :]
         pixel_dif2 = images[:, :, 1:, :] - images[:, :, :-1, :]
         # Sum for the last 3 axes, resulting in a 1-D tensor with the total variation for each image.
-        tot_var = torch.sum(torch.abs(pixel_dif1), dim=(1, 2, 3)) + torch.sum(torch.abs(pixel_dif2), dim=(1, 2, 3))
+        tot_var = torch.mean(torch.abs(pixel_dif1), dim=(1, 2, 3)) + torch.mean(torch.abs(pixel_dif2), dim=(1, 2, 3))
+        # tot_var = torch.sum(torch.abs(pixel_dif1), dim=(1, 2, 3)) + torch.sum(torch.abs(pixel_dif2), dim=(1, 2, 3))
     else:
         raise ValueError("'images' must be either 3 or 4-dimensional.")
     return tot_var
@@ -52,13 +60,13 @@ class TVL1Loss(nn.Module):
 
     def forward(self, decoded, GT):
         # Calculate the MSE loss
-        # L1_loss = nn.L1Loss(reduction='mean')
-        L1_loss = nn.L1Loss(reduction='sum')
+        L1_loss = nn.L1Loss(reduction='mean')
+        # L1_loss = nn.L1Loss(reduction='sum')
         loss_L1 = L1_loss(decoded, GT)
         tvloss= total_variation(decoded)
         # logger.info(f" tvloss:{tvloss*self.beta:.4f}, L1loss:{loss_L1:.4f}")
-
         total_loss = loss_L1 + tvloss * self.beta
+        # print(f'l1loss:{loss_L1},tvloss:{tvloss},totalloss:{total_loss}')
         return total_loss
 
 def median_filter2d(img, kernel_size=5):
@@ -610,6 +618,7 @@ class MeshEncoderDecoder(Module):
         device,
         lgrcs,
     ):
+        # tic = time.time()
 #------------------------------------------------------------------进Encoder---------------------------------------------------------------------------------------------
         '''torch.Size([1, 33564, 3])'''
         encoded, __, em_embed, in_em2 = self.encode( #从这儿进encode里 返回的encoded就是那一个跑了一溜SAGEConv得到的face_embed.size = torch.Size([1, 33564, 576]), face_coordinates.shape = torch.Size([1, 33564, 9])是一个面3个点9个坐标点？为啥一个面是tensor([35, 60, 55, 35, 60, 55, 35, 60, 55]) 我知道了因为128^3离散化了
@@ -620,21 +629,29 @@ class MeshEncoderDecoder(Module):
             in_em = in_em,
             logger = logger
         )
-
+        # print('\nencoder:')
+        # tic = toc(tic) #耗时0.0145s
 #------------------------------------------------------------------进Decoder---------------------------------------------------------------------------------------------
         decoded = self.decode( #从这儿进decoder里，进decoder的只有quantized，没有codes！所以是什么我也不用关心了其实，我只要把他大小对准塞进去就行。
             encoded, #quantized.shape = torch.Size([1, 33564, 576])
             em_embed,
         )
+        # print('decoder:')
+        # tic = toc(tic) #耗时0.0109s
 #------------------------------------------------------------------出Decoder了，后面都是算loss等后处理---------------------------------------------------------------------
-
         #平滑后处理：中值滤波+高斯滤波+修改后的smoothloss
         decoded = decoded.unsqueeze(1)  # 添加 channel 维度
         decoded = median_filter2d(decoded, kernel_size=5)# 应用中值滤波
+        # decoded = median_filter2d(decoded, kernel_size=5)# 应用中值滤波
+        # print('中值滤波')
+        # tic = toc(tic)
         decoded = gaussian_filter2d(decoded, kernel_size=5, sigma=4, device=device)#两个都用 这个效果好
         decoded = decoded.squeeze(1)
+        # print('高斯滤波:')
+        # tic = toc(tic)
 
         if GT == None:
+            # tic = toc(tic)
             return decoded
         else:
             GT = GT[:,:-1,:] #361*720变360*720
@@ -645,16 +662,29 @@ class MeshEncoderDecoder(Module):
                 # logger.info(f'lg后GT:{GT[0]}')
                 # logger.info(f'再变回去的GT:{torch.pow(10, GT)[0]}')
                 # GT = torch.pow(10, GT) #反变换在这里
-            TVL1loss = TVL1Loss(beta=0.1)
+            TVL1loss = TVL1Loss(beta=10.0)
+            # TVL1loss = TVL1Loss(beta=0.00001)
             loss = TVL1loss(decoded,GT)/(GT.shape[0])
-            psnr_list = batch_psnr(decoded, GT)
-            ssim_list = batch_ssim(decoded, GT)
-            mean_psnr = psnr_list.mean()
-            mean_ssim = ssim_list.mean()
+            # print('TVL1loss:')
+            # tic = toc(tic)
+
+            with torch.no_grad():
+                psnr_list = psnr(decoded, GT)
+                # print('psnrssim:')
+                # tic = toc(tic)
+                ssim_list = ssim(decoded, GT)
+                # tic = toc(tic)
+                mean_psnr = psnr_list.mean()
+                # tic = toc(tic)
+                mean_ssim = ssim_list.mean()
+                # tic = toc(tic)
+                # mean_psnr, psnr_list, mean_ssim, ssim_list = 0, [], 0, []
+
             # mean_mse =  F.mse loss(decoded, GT, reduction='mean')
             # mseloss = nn.MSELoss(reduction='mean')
-            with torch.no_grad():
+            # with torch.no_grad():
                 mean_mse = ((decoded-GT) ** 2).sum() / GT.numel()
             # logger.info(f"PSNR: {psnr_list} , Mean PSNR: {mean_psnr:.2f}, SSIM: {ssim_list}, Mean SSIM: {mean_ssim:.4f}")
-
+            # print('mean_mse:')
+            # tic = toc(tic) #耗时2.0270s
             return loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse

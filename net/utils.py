@@ -8,17 +8,61 @@ import numpy as np
 import trimesh
 from net.data import derive_face_edges_from_faces
 
-def ssim(img1, img2, window_size=11, size_average=True):
-    img1 = img1.unsqueeze(1) # [batch_size, 1, height, width]
-    img2 = img2.unsqueeze(1) # [batch_size, 1, height, width]
-    gtmax = torch.max(img1)
-    demax = torch.max(img2) #1.7787
-    maxx = torch.max(gtmax, demax)
-    C1 = (0.01 * maxx) ** 2
-    C2 = (0.03 * maxx) ** 2
+# def ssim(img1, img2, window_size=11, size_average=True):
+#     img1 = img1.unsqueeze(1) # [batch_size, 1, height, width]
+#     img2 = img2.unsqueeze(1) # [batch_size, 1, height, width]
+#     gtmax = torch.max(img1)
+#     demax = torch.max(img2) #1.7787
+#     maxx = torch.max(gtmax, demax)
+#     C1 = (0.01 * maxx) ** 2
+#     C2 = (0.03 * maxx) ** 2
+
+#     def gaussian(window_size, sigma):
+#         gauss = torch.exp(-(torch.arange(window_size) - window_size // 2) ** 2 / (2 * sigma ** 2))
+#         return gauss / gauss.sum()
+
+#     def create_window(window_size, channel):
+#         _1D_window = gaussian(window_size, 1.5).unsqueeze(1)
+#         _2D_window = _1D_window.mm(_1D_window.t()).float().unsqueeze(0).unsqueeze(0)
+#         window = _2D_window.expand(channel, 1, window_size, window_size).contiguous()
+#         return window
+
+#     channel = img1.size(0)
+#     window = create_window(window_size, channel).to(img1.device)
+
+#     mu1 = F.conv2d(img1, window, padding=window_size//2, groups=channel)
+#     mu2 = F.conv2d(img2, window, padding=window_size//2, groups=channel)
+
+#     mu1_sq = mu1.pow(2)
+#     mu2_sq = mu2.pow(2)
+#     mu1_mu2 = mu1 * mu2
+
+#     sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size//2, groups=channel) - mu1_sq
+#     sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size//2, groups=channel) - mu2_sq
+#     sigma12 = F.conv2d(img1 * img2, window, padding=window_size//2, groups=channel) - mu1_mu2
+
+#     ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
+
+#     if size_average:
+#         return ssim_map.mean()
+#     else:
+#         return ssim_map.mean(1).mean(1).mean(1)
+
+# def batch_ssim(img1, img2):
+#     batch_size = img1.size(0)
+#     ssim_list = []
+#     for i in range(batch_size):
+#         ssim_val = ssim(img1[i].unsqueeze(0), img2[i].unsqueeze(0))
+#         ssim_list.append(ssim_val)
+#     return torch.tensor(ssim_list)
+
+def ssim(img1, img2, window_size=11, size_average=False):
+    img1 = img1.unsqueeze(1)  # [batch_size, 1, height, width]
+    img2 = img2.unsqueeze(1)  # [batch_size, 1, height, width]
+    channel = img1.size(1)
 
     def gaussian(window_size, sigma):
-        gauss = torch.exp(-(torch.arange(window_size) - window_size // 2) ** 2 / (2 * sigma ** 2))
+        gauss = torch.exp(-(torch.arange(window_size).float() - window_size // 2) ** 2 / (2 * sigma ** 2))
         return gauss / gauss.sum()
 
     def create_window(window_size, channel):
@@ -27,7 +71,6 @@ def ssim(img1, img2, window_size=11, size_average=True):
         window = _2D_window.expand(channel, 1, window_size, window_size).contiguous()
         return window
 
-    channel = img1.size(0)
     window = create_window(window_size, channel).to(img1.device)
 
     mu1 = F.conv2d(img1, window, padding=window_size//2, groups=channel)
@@ -41,36 +84,48 @@ def ssim(img1, img2, window_size=11, size_average=True):
     sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size//2, groups=channel) - mu2_sq
     sigma12 = F.conv2d(img1 * img2, window, padding=window_size//2, groups=channel) - mu1_mu2
 
-    ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
+    # 计算每张图片的最大值，并根据最大值计算C1和C2
+    gtmax = img1.view(img1.size(0), -1).max(dim=1)[0]
+    demax = img2.view(img2.size(0), -1).max(dim=1)[0]
+    maxx = torch.max(gtmax, demax)
+    C1 = (0.01 * maxx) ** 2
+    C2 = (0.03 * maxx) ** 2
+
+    # 将C1和C2调整为可广播的形状
+    C1 = C1.view(-1, 1, 1, 1)
+    C2 = C2.view(-1, 1, 1, 1)
+
+    ssim_map = ((2 * mu1 * mu2 + C1) * (2 * sigma12 + C2)) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
 
     if size_average:
         return ssim_map.mean()
     else:
-        return ssim_map.mean(1).mean(1).mean(1)
-
-def batch_ssim(img1, img2):
-    batch_size = img1.size(0)
-    ssim_list = []
-    for i in range(batch_size):
-        ssim_val = ssim(img1[i].unsqueeze(0), img2[i].unsqueeze(0))
-        ssim_list.append(ssim_val)
-    return torch.tensor(ssim_list)
+        return ssim_map.mean([1, 2, 3])
+    
+# def psnr(img1, img2):
+#     mse = F.mse_loss(img1, img2, reduction='mean')
+#     gtmax = torch.max(img1)
+#     demax = torch.max(img2)
+#     maxx = torch.max(gtmax, demax)
+#     psnr = 10 * torch.log10(maxx * maxx / mse)
+#     return psnr
+    
+# def batch_psnr(img1, img2):
+#     import time
+#     tic = time.time()
+#     batch_size = img1.size(0)
+#     psnrlist=[]
+#     for i in range(batch_size):
+#         psnrr=psnr(img1[i],img2[i])
+#         psnrlist.append(psnrr)
+#     return torch.tensor(psnrlist)
 
 def psnr(img1, img2):
-    mse = F.mse_loss(img1, img2, reduction='mean')
-    gtmax = torch.max(img1)
-    demax = torch.max(img2)
-    maxx = torch.max(gtmax, demax)
-    psnr = 10 * torch.log10(maxx * maxx / mse)
+    mse = F.mse_loss(img1, img2, reduction='none')
+    mse = mse.view(mse.size(0), -1).mean(dim=1)  # Compute mean MSE for each image in the batch
+    maxx = torch.max(img1.view(img1.size(0), -1), dim=1)[0]
+    psnr = 10 * torch.log10(maxx ** 2 / mse)
     return psnr
-    
-def batch_psnr(img1, img2):
-    batch_size = img1.size(0)
-    psnrlist=[]
-    for i in range(batch_size):
-        psnrr=psnr(img1[i],img2[i])
-        psnrlist.append(psnrr)
-    return torch.tensor(psnrlist)
 
 def transform_to_log_coordinates(x):
     if not isinstance(x, torch.Tensor):

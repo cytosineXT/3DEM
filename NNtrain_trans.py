@@ -4,7 +4,7 @@ import torch
 import time
 from tqdm import tqdm
 # from net.jxtnet_upConv4_InsNorm import MeshAutoencoder
-from net.jxtnet_pureTrans import MeshEncoderDecoder
+from net.jxtnet_pureTrans import MeshEncoderDecoder, toc
 import torch.utils.data.dataloader as DataLoader
 # from torch.nn.parallel import DistributedDataParallel as DDP
 # from torch.nn.parallel import DataParallel as DP
@@ -22,7 +22,8 @@ from NNvalfast import plotRCS2, plot2DRCS, valmain
 
 
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-start_time0 = time.time()
+tic0 = time.time()
+tic = time.time()
 print('代码开始时间：',time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time())))  
 
 FILE = Path(__file__).resolve()
@@ -43,6 +44,7 @@ lgrcs = False
 threshold = 20
 learning_rate = 0.005  # 初始学习率
 lr_time = 20
+accumulation_step = 8
 
 shuffle = True
 # shuffle = False
@@ -69,7 +71,7 @@ valdir = r'/home/jiangxiaotian/datasets/mul2347_6val'
 # valdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
 pretrainweight = r'./output/train/0615upconv4fckan_mul2347pretrain_000/last.pt' #T7920
 
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0727_puretrans_0.005lr_pretrain'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0728_puretrans_Adam0.005lr_pretrain'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 lossessavedir = os.path.join(save_dir,'loss.png')
@@ -132,53 +134,70 @@ else:
     logger.info('未使用预训练权重，为从头训练')
 
 autoencoder = autoencoder.to(device)
-optimizer = torch.optim.SGD(autoencoder.parameters(), lr=learning_rate, momentum=0.9, weight_decay=1e-4)
-# optimizer = torch.optim.Adam(autoencoder.parameters(), lr=learning_rate, weight_decay=1e-4)
+# optimizer = torch.optim.SGD(autoencoder.parameters(), lr=learning_rate, momentum=0.9, weight_decay=1e-4)
+optimizer = torch.optim.Adam(autoencoder.parameters(), lr=learning_rate, weight_decay=1e-4)
 # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=lr_time)# CosineAnnealingLR使用余弦函数调整学习率，可以更平滑地调整学习率
 
 flag = 1
 GTflag = 1
 for i in range(epoch):
+    jj=0
     logger.info('\n')
     epoch_loss = 0.
     # tqdm.write(f'epoch:{i+1}')
     timeepoch = time.time()
     for in_em1,rcs1 in tqdm(dataloader,desc=f'epoch:{i+1},train进度',ncols=130,postfix=f'上一轮的epoch:{i},loss_mean:{(epoch_loss1/dataset.__len__()):.4f}'):
+        jj=jj+1
     # for in_em1,rcs1 in tqdm(dataloader,desc=f'epoch:{i+1},train进度,lr={scheduler.get_last_lr()[0]:.5f}',ncols=130,postfix=f'上一轮的epoch:{i},loss_mean:{(epoch_loss1/dataset.__len__()):.4f}'):
         in_em0 = in_em1.copy()
-        optimizer.zero_grad()
+        # optimizer.zero_grad()
         objlist , ptlist = find_matching_files(in_em1[0], "./planes")
         planesur_faces, planesur_verts, planesur_faceedges, geoinfo = process_files(objlist, device)
+        # planesur_faces1 = planesur_faces.clone().detach()
+        # planesur_verts1 = planesur_verts.clone().detach()
         # logger.info(f"物体：{objlist}， verts={planesur_verts.shape}， faces={planesur_faces.shape}， edge={planesur_faceedges.shape}")
-
+        print('\n--循环准备总时长')
+        tic=toc(tic)
         loss, outrcs, psnr_mean, _, ssim_mean, _, mse_mean = autoencoder( #这里使用网络，是进去跑了forward 
             vertices = planesur_verts,
             faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
-            # face_edges = planesur_faceedges,
             geoinfo = geoinfo, #[area, volume, scale]
             in_em = in_em1,#.to(device)
             GT = rcs1.to(device), #这里放真值
             logger = logger,
             device = device,
             lgrcs = lgrcs,
-            # diffusionplugin = diffusion #开始魔改了
         )
+        print('--推理总时长:')
+        tic=toc(tic)
+        
         if lgrcs == True:
             outrcslg = outrcs
             outrcs = torch.pow(10, outrcs)
         if batchsize > 1:
             # tqdm.write(f'loss:{loss.tolist()}')
-            loss=loss.sum()
+            loss=loss.mean() / accumulation_step #loss.sum()改成loss.mean()
             loss.backward() #这一步很花时间，但是没加optimizer是白给的
+            print('--loss.backward：')
+            tic=toc(tic)
         else:
             outem = [int(in_em1[1]), int(in_em1[2]), float(f'{in_em1[3].item():.3f}')]
             tqdm.write(f'em:{outem},loss:{loss.item():.4f}')
+            loss=loss / accumulation_step
             loss.backward()
-        epoch_loss=epoch_loss + loss.item()
-        torch.nn.utils.clip_grad_norm_(autoencoder.parameters(), max_norm=threshold)
-        optimizer.step()
-        torch.cuda.empty_cache()
+            # print('--loss.backward：')
+            # tic=toc(tic)
 
+        epoch_loss=epoch_loss + loss.item()
+
+        # torch.nn.utils.clip_grad_norm_(autoencoder.parameters(), max_norm=threshold)
+        # optimizer.step()
+        if (jj) % accumulation_step == 0 or (jj) == len(dataloader):
+            optimizer.step() #结果发现这一步也不花时间。。
+            optimizer.zero_grad()
+            print('--优化器:')
+            tic=toc(tic)
+        # torch.cuda.empty_cache()
         psnr_list.append(psnr_mean)
         ssim_list.append(ssim_mean)
         mse_list.append(mse_mean)
@@ -200,6 +219,9 @@ for i in range(epoch):
                 drawrcs = outrcs[j]
                 break
                 # print(drawrcs.shape)
+        print('--loss到本轮batch结束时长：')
+        tic = toc(tic)
+
     p = psnr(drawrcs.to(device), drawGT.to(device))
     s = ssim(drawrcs.to(device), drawGT.to(device))
     m = torch.nn.functional.mse_loss(drawrcs.to(device), drawGT.to(device))
@@ -280,5 +302,4 @@ for i in range(epoch):
 
 logger.info(f"损坏的文件：{corrupted_files}")
 logger.info(f'训练结束时间：{time.strftime("%Y-%m-%d %H:%M:%S",time.localtime(time.time()))}')
-end_time0 = time.time()
-logger.info(f'训练用时： {time.strftime("%H:%M:%S", time.gmtime(end_time0-start_time0))}')
+logger.info(f'训练用时： {time.strftime("%H:%M:%S", time.gmtime(time.time()-tic0))}')

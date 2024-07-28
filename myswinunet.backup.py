@@ -443,7 +443,7 @@ class SwinTransformerSys(nn.Module): #他就是改了这里
                 patches_resolution[1] // (2 ** (self.num_layers-1-i_layer))), dim=int(96), dim_scale=2, norm_layer=norm_layer) #这里dim改了
             else:
                 layer_up = BasicLayer_up(dim=int(96 // 2**(i_layer)),
-                                input_resolution=(patches_resolution[0] // (2 ** (self.num_layers-1-i_layer)), #这里是input_resolution的地方
+                                input_resolution=(patches_resolution[0] // (2 ** (self.num_layers-1-i_layer)),
                                                     patches_resolution[1] // (2 ** (self.num_layers-1-i_layer))),
                                 depth=depths[(self.num_layers-1-i_layer)],
                                 num_heads=num_heads[(self.num_layers-1-i_layer)],
@@ -490,7 +490,7 @@ class SwinTransformerSys(nn.Module): #他就是改了这里
     def forward_up_features(self, x): #多的，应该就是融合特征的操作
         for inx, layer_up in enumerate(self.layers_up):
             x = layer_up(x)
-            # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
+            print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
         x = self.norm_up(x)  # B L C
         return x
 
