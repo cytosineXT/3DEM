@@ -13,6 +13,8 @@ from torch.nn.modules.dropout import Dropout
 from torch.nn.modules.linear import Linear
 from torch.nn.modules.normalization import LayerNorm
 
+from net.utils import checksize
+
 __all__ = ['Transformer', 'TransformerEncoder', 'TransformerDecoder', 'TransformerEncoderLayer', 'TransformerDecoderLayer']
 
 def _generate_square_subsequent_mask(
@@ -1004,6 +1006,7 @@ class TransformerWithPooling(Module):
 
     def forward(self, src):
         output = src
+        
         for layer in self.layers:
             # print(1)
             output = layer(output)
@@ -1011,7 +1014,7 @@ class TransformerWithPooling(Module):
 
             # Apply pooling to reduce sequence length
             output = self.pooling(output)
-            # print(output.shape, output.shape[0] * output.shape[1] * output.shape[2])
+            checksize(output)
         return output
 
     def pooling(self, x):

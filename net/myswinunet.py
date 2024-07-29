@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.utils.checkpoint as checkpoint
 from einops import rearrange
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+from net.utils import checksize
 
 
 class Mlp(nn.Module):
@@ -391,7 +392,7 @@ class SwinTransformerSys(nn.Module): #他就是改了这里
         use_checkpoint (bool): Whether to use checkpointing to save memory. Default: False
     """
 
-    def __init__(self, img_size=224, patch_size=4, in_chans=3, num_classes=1000,
+    def __init__(self, num_classes=1000,
                  embed_dim=96, depths=[2, 2, 2, 2], depths_decoder=[1, 2, 2, 2], num_heads=[3, 6, 12, 24],
                  window_size=9, mlp_ratio=4., qkv_bias=True, qk_scale=None, #Windowsize从7改成9
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
@@ -412,20 +413,8 @@ class SwinTransformerSys(nn.Module): #他就是改了这里
         self.mlp_ratio = mlp_ratio
         self.final_upsample = final_upsample #多的
 
-        # split image into non-overlapping patches
-        # self.patch_embed = PatchEmbed(
-        #     img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim,
-        #     norm_layer=norm_layer if self.patch_norm else None)
-        # num_patches = self.patch_embed.num_patches
-        # patches_resolution = self.patch_embed.patches_resolution
-        # self.patches_resolution = patches_resolution
         patches_resolution = (9,9)
         self.patches_resolution = patches_resolution
-
-        # # absolute position embedding
-        # if self.ape:
-        #     self.absolute_pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
-        #     trunc_normal_(self.absolute_pos_embed, std=.02)
 
         self.pos_drop = nn.Dropout(p=drop_rate)
 
@@ -464,7 +453,7 @@ class SwinTransformerSys(nn.Module): #他就是改了这里
         if self.final_upsample == "expand_first":
             print("---final upsample expand_first---")
             # self.up = FinalPatchExpand_X4(input_resolution=(img_size//patch_size,img_size//patch_size),dim_scale=4,dim=embed_dim)
-            self.output = nn.Conv2d(in_channels=embed_dim,out_channels=1,kernel_size=1,bias=False)
+            self.output = nn.Conv2d(in_channels=embed_dim,out_channels=1,kernel_size=1,bias=False) #奇怪 in_channels不应该是12么 怎么是embed_dim=96
 
         self.apply(self._init_weights)
 
@@ -490,7 +479,7 @@ class SwinTransformerSys(nn.Module): #他就是改了这里
     def forward_up_features(self, x): #多的，应该就是融合特征的操作
         for inx, layer_up in enumerate(self.layers_up):
             x = layer_up(x)
-            # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
+            checksize(x)
         x = self.norm_up(x)  # B L C
         return x
 

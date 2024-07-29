@@ -12,30 +12,23 @@ from torchtyping import TensorType
 from beartype import beartype
 from beartype.typing import Tuple
 
-from einops import rearrange, reduce, pack
+from einops import rearrange, pack
 from einops.layers.torch import Rearrange
 
-from net.utils import transform_to_log_coordinates, psnr, ssim
+from net.utils import transform_to_log_coordinates, psnr, ssim, toc, checksize
 import numpy as np
-from mytransformer import PositionalEncoding,TransformerWithPooling
-from myswinunet import SwinTransformerSys
+from net.mytransformer import PositionalEncoding,TransformerWithPooling
+from net.myswinunet import SwinTransformerSys
 
-def toc(tic):
-    print(f'耗时{time.time() - tic:.4f}s')
-    tic = time.time()
-    return tic
 
-def checksize(x):
-    1
-    # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
-    return 1
 
 def total_variation(images):
     ndims = images.dim()
     if ndims == 3:
         # The input is a single image with shape [height, width, channels].
         # Calculate the difference of neighboring pixel-values.
-        pixel_dif1 = images[1:, :, :] - images[:-1, :, :]
+        pixel_dif1 = images[:, :, 1:] - images[:, :, :-1]
+        # pixel_dif1 = images[1:, :, :] - images[:-1, :, :] #改正了对batchsize做差分的错误。。。
         pixel_dif2 = images[:, 1:, :] - images[:, :-1, :]
         # Sum for all axis.
         tot_var = torch.mean(torch.abs(pixel_dif1)) + torch.mean(torch.abs(pixel_dif2))
@@ -43,7 +36,7 @@ def total_variation(images):
     elif ndims == 4:
         # The input is a batch of images with shape: [batch, height, width, channels].
         # Calculate the difference of neighboring pixel-values.
-        pixel_dif1 = images[:, 1:, :, :] - images[:, :-1, :, :]
+        pixel_dif1 = images[:, :, :, 1:] - images[:, :, :, :-1]
         pixel_dif2 = images[:, :, 1:, :] - images[:, :, :-1, :]
         # Sum for the last 3 axes, resulting in a 1-D tensor with the total variation for each image.
         tot_var = torch.mean(torch.abs(pixel_dif1), dim=(1, 2, 3)) + torch.mean(torch.abs(pixel_dif2), dim=(1, 2, 3))
@@ -424,9 +417,13 @@ class MeshEncoderDecoder(Module):
         self.fc1d1 = nn.Sequential(
                 nn.Linear(351, 351),
                 nn.SiLU(),
-                nn.Linear(351, 96*45*90),
+                nn.Linear(351, 96*45*90),#388800
                 nn.LayerNorm(96*45*90)).to(device)
         self.swinunet = SwinTransformerSys(embed_dim=12,window_size=9).to(device)
+        self.incident_angle_linear1 = nn.Linear(2, 351)
+        self.incident_freq_linear1 = nn.Linear(1, 351)
+        self.incident_angle_linear2 = nn.Linear(2, 96*45*90)
+        self.incident_freq_linear2 = nn.Linear(1, 96*45*90)
 
         #----------------------------------------------------jxt decoder----------------------------------------------------------
         # self.conv1d1 = nn.Conv1d(self.hidden_size, self.hidden_size, kernel_size=10, stride=10, dilation=1 ,padding=0)
@@ -555,12 +552,8 @@ class MeshEncoderDecoder(Module):
         # print(f'Encoder Step5用时fc映射也没法加速：{(time.time()-ticc):.4f}s')
         # ticc = time.time()
 
-        # next prepare the face_mask for using masked_select and masked_scatter 然后准备facemask
-        orig_face_embed_shape = face_embed.shape[:2]
-        # face_embed = face_embed[face_mask]
-        # face_embed = face_embed.reshape(-1, face_embed.shape[-1]) 
-        # print(f'Encoder Step7 感觉可删用时：{(time.time()-ticc):.4f}s')
-        # ticc = time.time()
+        checksize(face_embed)
+        # orig_face_embed_shape = face_embed.shape[:2]
 
         '''
         Transformer输入：   (seq_len, batch_size, C)    (L B C)
@@ -570,11 +563,12 @@ class MeshEncoderDecoder(Module):
         '''
         face_embed = face_embed.reshape(-1,face_embed.shape[0],face_embed.shape[-1])#从(1,25000,576)变成(25000,1,576)
         '''(L B C)'''
+        checksize(face_embed)
         face_embed = self.pe(face_embed)
         face_embed = self.transformer_model(face_embed)
         face_embed = face_embed.reshape(-1,face_embed.shape[0],face_embed.shape[-1])#从(25000,1,576)变回(1,25000,576)
 
-        shape = (*orig_face_embed_shape, face_embed.shape[-1])# (1, 33564, 576) = (*torch.Size([1, 33564]), 576)
+        # shape = (*orig_face_embed_shape, face_embed.shape[-1])# (1, 33564, 576) = (*torch.Size([1, 33564]), 576)
         # face_embed = face_embed.new_zeros(shape).masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed) #多了一层[]而已
         # print(f'Encoder Step用时：{(time.time()-ticc):.4f}s')
         # ticc = time.time()        
@@ -583,21 +577,33 @@ class MeshEncoderDecoder(Module):
         if not return_face_coordinates:
             return face_embed
 
-        return face_embed, discrete_face_coords, em_embed, in_em2#, in_em_angle_vec
+        return face_embed, discrete_face_coords, em_embed, in_em1#, in_em_angle_vec
 
     @beartype
     def decode( #decoder输入：torchsize(1,33564,576) 长度33564待定，维度576固定
         self,
         x,
-        em_embed,#torch.Size([2, 20804, 3, 64]) , torch.Size([2, 20804, 1, 16]) 64*3+16=204 +1=785
+        in_em1,
+        device
     ):
+        in_angle = torch.stack([in_em1[1], in_em1[2]]).t().float().to(device)
+        in_freq = in_em1[3].t().float().unsqueeze(1)
+        condangle1 = self.incident_angle_linear1(in_angle)
+        condangle2 = self.incident_angle_linear2(in_angle)
+        condfreq1 = self.incident_freq_linear1(in_freq)
+        condfreq2 = self.incident_freq_linear2(in_freq)
         #---------------conv1d+fc bottleneck---------------
         x = x.reshape(x.shape[1], x.shape[2], -1)  # 1DConv输入：Reshape to (batch_size, input_channel, seq_len)
         checksize(x)
         x = self.conv1d1(x)
         checksize(x)
+        x = x + condangle1
+        x = x + condfreq1
+
         x = self.fc1d1(x)
         checksize(x)
+        x = x + condangle2
+        x = x + condfreq2
 
         #-------------SwinTransformer Decoder--------------
         x = x.reshape(x.shape[0],45*90,-1)
@@ -620,8 +626,9 @@ class MeshEncoderDecoder(Module):
     ):
         # tic = time.time()
 #------------------------------------------------------------------进Encoder---------------------------------------------------------------------------------------------
-        '''torch.Size([1, 33564, 3])'''
-        encoded, __, em_embed, in_em2 = self.encode( #从这儿进encode里 返回的encoded就是那一个跑了一溜SAGEConv得到的face_embed.size = torch.Size([1, 33564, 576]), face_coordinates.shape = torch.Size([1, 33564, 9])是一个面3个点9个坐标点？为啥一个面是tensor([35, 60, 55, 35, 60, 55, 35, 60, 55]) 我知道了因为128^3离散化了
+        # print('\n')
+        checksize(faces)
+        encoded, __, em_embed, in_em1 = self.encode( #从这儿进encode里 返回的encoded就是那一个跑了一溜SAGEConv得到的face_embed.size = torch.Size([1, 33564, 576]), face_coordinates.shape = torch.Size([1, 33564, 9])是一个面3个点9个坐标点？为啥一个面是tensor([35, 60, 55, 35, 60, 55, 35, 60, 55]) 我知道了因为128^3离散化了
             vertices = vertices, #顶点
             faces = faces, #面
             geoinfo = geoinfo,
@@ -634,7 +641,8 @@ class MeshEncoderDecoder(Module):
 #------------------------------------------------------------------进Decoder---------------------------------------------------------------------------------------------
         decoded = self.decode( #从这儿进decoder里，进decoder的只有quantized，没有codes！所以是什么我也不用关心了其实，我只要把他大小对准塞进去就行。
             encoded, #quantized.shape = torch.Size([1, 33564, 576])
-            em_embed,
+            in_em1,
+            device
         )
         # print('decoder:')
         # tic = toc(tic) #耗时0.0109s
@@ -662,9 +670,9 @@ class MeshEncoderDecoder(Module):
                 # logger.info(f'lg后GT:{GT[0]}')
                 # logger.info(f'再变回去的GT:{torch.pow(10, GT)[0]}')
                 # GT = torch.pow(10, GT) #反变换在这里
-            TVL1loss = TVL1Loss(beta=10.0)
+            TVL1loss = TVL1Loss(beta=1.0) #我草 发现一个错误  pixel_dif1 = images[1:, :, :] - images[:-1, :, :] 但是GT.shape = torch.Size([1, 360, 720])，第一项是batchsize。。。
             # TVL1loss = TVL1Loss(beta=0.00001)
-            loss = TVL1loss(decoded,GT)/(GT.shape[0])
+            loss = TVL1loss(decoded,GT)/(GT.shape[0]) #平均了batch的loss
             # print('TVL1loss:')
             # tic = toc(tic)
 

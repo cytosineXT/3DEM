@@ -8,6 +8,19 @@ import numpy as np
 import trimesh
 from net.data import derive_face_edges_from_faces
 
+
+def toc(tic):
+    import time
+    print(f'耗时{time.time() - tic:.4f}s')
+    tic = time.time()
+    return tic
+
+def checksize(x):
+    1
+    # print(x.shape, torch.prod(torch.tensor(x.shape)).item())
+    # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
+    return 1
+
 # def ssim(img1, img2, window_size=11, size_average=True):
 #     img1 = img1.unsqueeze(1) # [batch_size, 1, height, width]
 #     img2 = img2.unsqueeze(1) # [batch_size, 1, height, width]
@@ -150,10 +163,20 @@ def get_model_memory_nolog(model):
     return memory
 
 def get_tensor_memory(x,logger):
-    memory = x.element_size() * x.nelement() / (1024**3)
-    logger.info(f'Tensor变量占用{memory:.4f}GB')  # 以GB为单位
+    size = x.element_size() * x.nelement()
+    MBmemory = size / (1024**2)
+    GBmemory = size / (1024**3)
+    logger.info(f'Tensor变量占用{GBmemory:.2f}GB或{MBmemory:.2f}MB')  # 以GB为单位
     # print(f'Tensor变量占用{memory:.4f}GB')  # 以GB为单位
-    return memory
+    return GBmemory, MBmemory
+
+def get_x_memory(x,logger):
+    import sys
+    size = sys.getsizeof(x)
+    MBmemory = size / (1024**2)
+    GBmemory = size / (1024**3)
+    logger.info(f'Tensor变量占用{GBmemory:.2f}GB或{MBmemory:.2f}MB')  # 以GB为单位
+
 
 def get_logger(filename, verbosity=1, name=None):
     level_dict = {0: logging.DEBUG, 1: logging.INFO, 2: logging.WARNING}

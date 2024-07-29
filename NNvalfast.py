@@ -81,7 +81,10 @@ def plot2DRCS(rcs, savedir,logger,cutmax):
     plt.xlabel("Theta")
     plt.ylabel("Phi")
     plt.savefig(savedir)
-    logger.info(f'画图用时：{time.time()-tic:.4f}s')
+    if logger!=None:
+        logger.info(f'画图用时：{time.time()-tic:.4f}s')
+    else:
+        print(f'画图用时：{time.time()-tic:.4f}s')
 
 def plotstatistic(psnr_list, ssim_list, mse_list, statisticdir):
     # 绘制统计图
@@ -165,21 +168,22 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
     losses = []
     corrupted_files = []
     for file in tqdm(os.listdir(rcsdir),desc=f'加载验证数据集',ncols=60,postfix=''):
-        # print(file)
-        plane, theta, phi, freq= re.search(r"([a-zA-Z0-9]{4})_theta(\d+)phi(\d+)f(\d.+).pt", file).groups()
-        theta = int(theta)
-        phi = int(phi)
-        freq = float(freq)
-        in_em = [plane,theta,phi,freq]
-        # print(in_em)
-        try:
-            rcs = torch.load(os.path.join(rcsdir,file))
-        except Exception as e:
-            corrupted_files.append(os.path.join(rcsdir,file))
-            logger.info(f"Error loading file {os.path.join(rcsdir,file)}: {e}")
-        in_ems.append(in_em)
-        rcss.append(rcs)
-        # rcss.append(rcs[:,:,0])
+        if '.pt' in file:
+            # print(file)
+            plane, theta, phi, freq= re.search(r"([a-zA-Z0-9]{4})_theta(\d+)phi(\d+)f(\d.+).pt", file).groups()
+            theta = int(theta)
+            phi = int(phi)
+            freq = float(freq)
+            in_em = [plane,theta,phi,freq]
+            # print(in_em)
+            try:
+                rcs = torch.load(os.path.join(rcsdir,file))
+            except Exception as e:
+                corrupted_files.append(os.path.join(rcsdir,file))
+                logger.info(f"Error loading file {os.path.join(rcsdir,file)}: {e}")
+            in_ems.append(in_em)
+            rcss.append(rcs)
+            # rcss.append(rcs[:,:,0])
 
     dataset = meshRCSDataset(in_ems, rcss)
     dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=False, num_workers=0)
