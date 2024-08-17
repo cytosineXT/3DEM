@@ -18,8 +18,7 @@ def toc(tic):
 def checksize(x):
     1
     # print(x.shape, torch.prod(torch.tensor(x.shape)).item())
-    # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
-    return 1
+    # return 1
 
 # def ssim(img1, img2, window_size=11, size_average=True):
 #     img1 = img1.unsqueeze(1) # [batch_size, 1, height, width]
@@ -143,7 +142,7 @@ def psnr(img1, img2):
 def transform_to_log_coordinates(x):
     if not isinstance(x, torch.Tensor):
         x = torch.tensor(x)
-    log_x = (torch.log10(torch.where(x <= 0, torch.finfo(torch.float).eps, x)) - torch.log10(torch.tensor(0.001))) / (torch.log10(torch.tensor(8)) - torch.log10(torch.tensor(0.001))) # 将负值和零转换为正值,取对数,归一化处理
+    log_x = (torch.log10(torch.where(x <= 0, torch.finfo(torch.float).eps, x)) - torch.log10(torch.tensor(0.001))) / (torch.log10(torch.tensor(1.1)) - torch.log10(torch.tensor(0.001))) # 将负值和零转换为正值,取对数,归一化处理 现在是0-1而不是0-8了~！
     return log_x
 
 def get_model_memory(model,logger):

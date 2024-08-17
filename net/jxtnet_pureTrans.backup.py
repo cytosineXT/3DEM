@@ -24,9 +24,6 @@ from pytictoc import TicToc
 t = TicToc()
 t.tic()
 
-def incidentangle_norm(x):
-    return torch.stack([x[:,:,0]/180,x[:,:,1]/360]).squeeze().t().unsqueeze(1)
-
 def total_variation(images):
     ndims = images.dim()
     if ndims == 3:
@@ -111,6 +108,14 @@ def ContinuousEmbed(dim_cont):
 
 # additional encoder features
 # 1. angle (3), 2. area (1), 3. normals (3)  四、入射波入射角（1）or 入射矢量(3) 五、入射波频率
+def coords_interanglejxt(x, y, eps = 1e-5): #给点坐标
+    edge_vector = x - y #得到了三条边的矢量(从原点出发的)
+    normv = l2norm(edge_vector) #torch.Size([2, 20804, 3, 3])
+    normdot = -torch.einsum('abcd,abcd->abc', normv, torch.cat((normv[:, :, -1:], normv[:, :, :-1]), dim = 2))  #torch.Size([2, 20804, 3])
+    radians = normdot.clip(-1 + eps, 1 - eps).arccos() #[0][0]=tensor([1.0587, 1.2161, 0.8668], device='cuda:0')
+    angle = torch.tensor([[ [degrees(rad.item()) for rad in row] for row in matrix] for matrix in radians]) #[0][0]=tensor([60.6594, 69.6776, 49.6630])
+    return radians, angle #torch.Size([2, 20804, 3])
+
 def coords_interanglejxt2(x, y, eps=1e-5): #不要用爱恩斯坦求和 会变得不幸
     edge_vector = x - y
     normv = l2norm(edge_vector) #torch.Size([2, 20804, 3, 3])
@@ -120,12 +125,24 @@ def coords_interanglejxt2(x, y, eps=1e-5): #不要用爱恩斯坦求和 会变�
     angle = torch.rad2deg(radians) #tensor([63.5302, 50.1188, 65.9518], device='cuda:0')
     return radians, angle
 
+def vector_anglejxt(x, y, eps = 1e-5): #给矢量
+    normdot = -torch.einsum('...d,...d->...', l2norm(x), l2norm(y)) 
+    radians = normdot.clip(-1 + eps, 1 - eps).arccos() #tensor(1.4104, device='cuda:0')
+    angle = torch.tensor([[[degrees(row.item())] for row in matrix] for matrix in radians]) #tensor([80.8117])
+    return radians, angle
+
 def vector_anglejxt2(x, y, eps=1e-5):
     normdot = -(l2norm(x) * l2norm(y)).sum(dim=-1)
     normdot = torch.clamp(normdot, -1 + eps, 1 - eps)
     radians = normdot.acos() #tensor(1.4104, device='cuda:0')
     angle = torch.rad2deg(radians) #tensor(80.8117, device='cuda:0')
     return radians, angle
+
+def polar_to_cartesian(theta, phi):
+    x = math.sin(math.radians(phi)) * math.cos(math.radians(theta))
+    y = math.sin(math.radians(phi)) * math.sin(math.radians(theta))
+    z = math.cos(math.radians(phi))
+    return [x, y, z]
 
 def polar_to_cartesian2(theta, phi):
     theta_rad = torch.deg2rad(theta)
@@ -135,7 +152,6 @@ def polar_to_cartesian2(theta, phi):
     z = torch.cos(phi_rad)
     return torch.stack([x, y, z], dim=1)
 
-@torch.no_grad()
 def jxtget_face_coords(vertices, face_indices):
     """
     获取具有坐标的面。
@@ -161,15 +177,40 @@ def get_derived_face_featuresjxt(
     logger,
     self
 ):
+    # ticcc = time.time()
     shifted_face_coords = torch.cat((face_coords[:, :, -1:], face_coords[:, :, :-1]), dim = 2).to(device) #这是对face_coords循环移位，face_coords[:, :, -1:]取最后一个切片，face_coords[:, :, :-1]取最后一个之前的切片，然后连接在一起。
+    # print(f'Derived Step0用时：{(time.time()-ticcc):.4f}s')
+    # ticcc = time.time()
+
     angles, _  = coords_interanglejxt2(face_coords, shifted_face_coords) #得到了每个三角形face的三个内角，弧度形式的，如果要角度形式的要用_的(angle2) 耗时1.64！！
+    # angles, angles2  = coords_interanglejxt2(face_coords, shifted_face_coords) #得到了每个三角形face的三个内角，弧度形式的，如果要角度形式的要用_的(angle2) 耗时1.64！！
+    # print(f'Derived Step1用时应该已经到头了：{(time.time()-ticcc):.4f}s')
+    # ticcc = time.time()
+
     edge1, edge2, *_ = (face_coords - shifted_face_coords).unbind(dim = 2) #这里是坐标相减得到边
+    # print(f'Derived Step2用时：{(time.time()-ticcc):.4f}s')
+    # ticcc = time.time()
+
     normals = l2norm(torch.cross(edge1, edge2, dim = -1)) #然后也用边叉乘得到法向量，很合理
+    # print(f'Derived Step3用时：{(time.time()-ticcc):.4f}s')
+    # ticcc = time.time()
+
     area = torch.cross(edge1, edge2, dim = -1).norm(dim = -1, keepdim = True) * 0.5 #两边矢量叉乘模/2得到面积
+    # print(f'Derived Step4用时：{(time.time()-ticcc):.4f}s')
+    # ticcc = time.time()
+
     incident_angle_vec = polar_to_cartesian2(in_em[1],in_em[2]).to(device) #得到入射方向的xyz矢量
     incident_angle_mtx = incident_angle_vec.unsqueeze(1).expand(-1, area.shape[1], -1) #得到入射方向的矢量矩阵torch.Size([batchsize, 33564, 3])
+    # incident_angle_mtx = incident_angle_vec.unsqueeze(1).repeat(1, area.shape[1], 1) #得到入射方向的矢量矩阵torch.Size([batchsize, 33564, 3])
     incident_freq_mtx = in_em[3].unsqueeze(1).unsqueeze(2).expand(-1, area.shape[1], -1) 
+    # incident_freq_mtx = in_em[3].unsqueeze(1).unsqueeze(2).repeat(1, area.shape[1], 1) #得到入射波频率的矩阵torch.Size([1, 33564, 1]) 感觉取对数不是那个意思，对数坐标只是看起来的，不是实际上的？
+    # print(f'Derived Step5用时：{(time.time()-ticcc):.4f}s')
+    # ticcc = time.time()
+
     incident_mesh_anglehudu, _ = vector_anglejxt2(normals, incident_angle_mtx) #得到入射方向和每个mesh法向的夹角,是在0到180度的，0-90说明面在物体屁股后面，90-180说明是正面  耗时0.68！！！
+    # incident_mesh_anglehudu, incident_mesh_anglejiaodu = vector_anglejxt2(normals, incident_angle_mtx) #得到入射方向和每个mesh法向的夹角,是在0到180度的，0-90说明面在物体屁股后面，90-180说明是正面  耗时0.68！！！
+    # print(f'Derived Step6用时：{(time.time()-ticcc):.4f}s')
+    # ticcc = time.time()
 
     return dict(
         angles = angles,
@@ -179,7 +220,110 @@ def get_derived_face_featuresjxt(
         emangle = incident_angle_mtx,
         emfreq = incident_freq_mtx.to(device),
     ),incident_angle_vec #,mixfreqgeo#, incident_angle_vec #这里就算回了freq=em[0][2]好像也没啥用吧，没离散化的 入射方向矢量倒是有用！
+'''
+face_coords = tensor([[[[-0.4410, -0.0583, -0.1358],
+          [-0.4377, -0.0619, -0.1303],
+          [-0.4430, -0.0572, -0.1290]],
+         ...,
+         [[ 0.4457, -0.0392,  0.0039],
+          [ 0.4444, -0.0349,  0.0022],
+          [ 0.4439, -0.0353,  0.0067]]]])
+shifted_face_coords = tensor([[[[-0.4430, -0.0572, -0.1290],
+          [-0.4410, -0.0583, -0.1358],
+          [-0.4377, -0.0619, -0.1303]],
+         ...,
+         [[ 0.4439, -0.0353,  0.0067],
+          [ 0.4457, -0.0392,  0.0039],
+          [ 0.4444, -0.0349,  0.0022]]]])
+angles = tensor([[[1.0797, 1.0247, 1.0372],
+         [0.5923, 1.2129, 1.3365],
+         [1.3376, 0.8337, 0.9703],
+         ...,
+         [0.8646, 1.0079, 1.2691],
+         [0.9441, 1.3377, 0.8598],
+         [1.0495, 0.9411, 1.1510]]])
+torch.Size([1, 33564, 3])
+    角度 tensor([[[61.8628, 58.7087, 59.4285],
+         [33.9337, 69.4925, 76.5738],
+         [76.6365, 47.7694, 55.5940],
+         ...,
+         [49.5398, 57.7469, 72.7133],
+         [54.0905, 76.6449, 49.2646],
+         [60.1344, 53.9186, 65.9470]]])
+edge1 = tensor([[[ 0.0020, -0.0011, -0.0068],
+         [ 0.0039, -0.0055,  0.0066],
+         [-0.0013, -0.0008,  0.0078],
+         ...,
+         [ 0.0018, -0.0021, -0.0044],
+         [-0.0009,  0.0024,  0.0037],
+         [ 0.0018, -0.0039, -0.0027]]])
+edge2 = tensor([[[ 3.2505e-03, -3.6082e-03,  5.5715e-03],
+         [-3.7629e-03,  3.1847e-03,  2.2070e-03],
+         [-3.9454e-03,  5.4754e-03, -6.5591e-03],
+         ...,
+         [ 1.2815e-05,  4.0940e-03,  6.5216e-04],
+         [ 1.3146e-03, -4.3237e-03,  1.7414e-03],
+         [-1.3146e-03,  4.3237e-03, -1.7414e-03]]])
+normals = tensor([[[-0.6752, -0.7332, -0.0809],
+         [-0.6926, -0.7013, -0.1688],
+         [-0.6796, -0.7101, -0.1840],
+         ...,
+         [ 0.9110, -0.0677,  0.4068],
+         [ 0.9522,  0.3035,  0.0348],
+         [ 0.9336,  0.3351,  0.1272]]])
+torch.Size([1, 33564, 3])
 
+area = tensor([[[2.2789e-05],
+         [2.3805e-05],
+         [2.7806e-05],
+         ...,
+         [9.1201e-06],
+         [1.0675e-05],
+         [9.9803e-06]]])
+torch.Size([1, 33564, 1])
+'''
+
+def discretize3(
+    t: Tensor,
+    *,
+    continuous_range: Tuple[float, float],
+    num_discrete: int = 128
+) -> Tensor:
+    lo, hi = continuous_range
+    assert hi > lo
+    t = (t - lo) / (hi - lo)
+    t *= num_discrete
+    t -= 0.5
+    
+    # 使用直通梯度法进行离散化
+    t_discrete = t.round().long().clamp(min=0, max=num_discrete - 1)
+    t_continuous = t_discrete.float() / (num_discrete - 1) * (hi - lo) + lo
+    # 在反向传播时,保留梯度信息
+    t_out = t_discrete.detach() + t_continuous - t_continuous.detach()
+    return t_out
+
+# tensor helper functions
+class DiscretizeSTE(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input, continuous_range, num_discrete):
+        lo, hi = continuous_range
+        assert hi > lo
+        input = (input - lo) / (hi - lo)
+        input *= num_discrete
+        input -= 0.5
+        output = input.round().long().clamp(min=0, max=num_discrete - 1)
+        ctx.save_for_backward(input)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, = ctx.saved_tensors
+        grad_input = grad_output.clone()
+        grad_input[input.abs() > 0.5] = 0
+        return grad_input, None, None
+    
+def discretize2(t: Tensor, *, continuous_range: Tuple[float, float], num_discrete: int = 128) -> Tensor:
+    return DiscretizeSTE.apply(t, continuous_range, num_discrete)
 
 @beartype
 def discretize(
@@ -219,8 +363,7 @@ class MeshEncoderDecoder(Module):
         decoder_outdim = 12,
         device = 'cpu',
         hidden_size = 576,
-        paddingsize = 22500,
-        encoder_layer = 6
+        paddingsize = 22500
         
     ): #我草 这里面能调的参也太NM多了吧 这炼丹能练死人
         super().__init__()
@@ -248,6 +391,9 @@ class MeshEncoderDecoder(Module):
         self.discretize_emangle = partial(discretize, num_discrete = num_discrete_emangle, continuous_range = coor_continuous_range) #jxt
         self.emangle_embed = nn.Embedding(num_discrete_emangle, dim_emangle_embed) #jxt 128 64
         self.discretize_emfreq = partial(discretize, num_discrete = num_discrete_emfreq, continuous_range = (0.,1.0)) #2024年5月11日15:28:15我草 是不是没必要离散，这个情况，是不是其实我的freq本身其实就已经离散的了，不用我再人为离散化一次？只是embedding的时候他映射到embedding空间之后，隐含的空间关系就能实现我“连续回归”的目的？而且280个点离散到128个离散值，本身就有问题吧你妈的
+        # self.discretize_emfreq2 = partial(discretize2, num_discrete=num_discrete_emfreq, continuous_range=(0.,1.0))
+        # self.discretize_emfreq3 = partial(discretize3, num_discrete=num_discrete_emfreq, continuous_range=(0.,1.0))
+        # self.discretize_emfreq2 = partial(gumbel_softmax, num_discrete=num_discrete_emfreq, continuous_range=(0.,1.0))
 
         self.emfreq_embed = nn.Embedding(num_discrete_emfreq, dim_emfreq_embed) #jxt
         # self.enfc0 = nn.Linear(4,22500,device=device) #为什么我的embedding层都能有梯度学出来，linear就不能学呢
@@ -268,22 +414,53 @@ class MeshEncoderDecoder(Module):
         # jxt transformer encoder
         # self.transencoder = nn.TransformerEncoder(nn.TransformerEncoderLayer(d_model=hidden_size, nhead=8, dim_feedforward=256),num_layers=6).to(device)
         #----------------------------------------------------jxt encoder----------------------------------------------------------
-        self.transformer_model = TransformerWithPooling(d_model=hidden_size, nhead=4, dim_feedforward=256, num_layers=encoder_layer, pool_size=2, activation='silu').to(device)
+        self.transformer_model = TransformerWithPooling(d_model=hidden_size, nhead=4, dim_feedforward=256, num_layers=6, pool_size=2, activation='silu').to(device)
         self.pe = PositionalEncoding(d_model=hidden_size).to(device)
         self.conv1d1 = nn.Conv1d(576, 1, kernel_size=1, stride=1, dilation=1 ,padding=0).to(device)
         self.fc1d1 = nn.Sequential(
-                nn.Linear(int(self.paddingsize/(2**encoder_layer)), int(self.paddingsize/(2**encoder_layer))),
+                nn.Linear(351, 351),
                 nn.SiLU(),
-                nn.Linear(int(self.paddingsize/(2**encoder_layer)), decoder_outdim*8*45*90),#388800
+                nn.Linear(351, decoder_outdim*8*45*90),#388800
                 nn.LayerNorm(decoder_outdim*8*45*90)).to(device)
         self.swinunet = SwinTransformerSys(embed_dim=decoder_outdim,window_size=9).to(device) #我给的是这个 其他都是自己算出来的
-        self.incident_angle_linear1 = nn.Linear(2, int(self.paddingsize/(2**encoder_layer)))
-        self.sig1 = nn.Sigmoid()
-        self.sig2 = nn.Sigmoid()
-        self.incident_freq_linear1 = nn.Linear(1, int(self.paddingsize/(2**encoder_layer)))
+        self.incident_angle_linear1 = nn.Linear(2, 351)
+        self.incident_freq_linear1 = nn.Linear(1, 351)
         self.incident_angle_linear2 = nn.Linear(2, decoder_outdim*8*45*90)
         self.incident_freq_linear2 = nn.Linear(1, decoder_outdim*8*45*90)
         t.toc('  初始化结束',restart=True)
+
+        #----------------------------------------------------jxt decoder----------------------------------------------------------
+        # self.conv1d1 = nn.Conv1d(self.hidden_size, self.hidden_size, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        # self.fcneck = nn.Sequential(
+        #     nn.Linear(self.hidden_size, self.hidden_size, bias=True,device=device),
+        #     nn.SiLU(),
+        #     nn.Linear(self.hidden_size, self.hidden_size, bias=True,device=device),
+        # )
+        # self.conv1d1 = nn.Conv1d(785, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        # # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        # self.fc1d1 = nn.Linear(2250, middim*45*90)
+        # self.upconv1 = nn.ConvTranspose2d(middim, int(middim / 2), kernel_size=2, stride=2)
+        # self.in1 = nn.InstanceNorm2d(int(middim / 2))
+        # self.conv1_1 = nn.Conv2d(int(middim / 2), int(middim / 2), kernel_size=3, stride=1, padding=1)
+        # self.in1_1 = nn.InstanceNorm2d(int(middim / 2))
+        # self.conv1_2 = nn.Conv2d(int(middim / 2), int(middim / 2), kernel_size=3, stride=1, padding=1)
+        # self.in1_2 = nn.InstanceNorm2d(int(middim / 2))
+
+        # self.upconv2 = nn.ConvTranspose2d(int(middim / 2), int(middim / 4), kernel_size=2, stride=2)
+        # self.in2 = nn.InstanceNorm2d(int(middim / 4))
+        # self.conv2_1 = nn.Conv2d(int(middim / 4), int(middim / 4), kernel_size=3, stride=1, padding=1)
+        # self.in2_1 = nn.InstanceNorm2d(int(middim / 4))
+        # self.conv2_2 = nn.Conv2d(int(middim / 4), int(middim / 4), kernel_size=3, stride=1, padding=1)
+        # self.in2_2 = nn.InstanceNorm2d(int(middim / 4))
+
+        # self.upconv3 = nn.ConvTranspose2d(int(middim / 4), int(middim / 8), kernel_size=2, stride=2, output_padding=1)
+        # self.in3 = nn.InstanceNorm2d(int(middim / 8))
+        # self.conv3_1 = nn.Conv2d(int(middim / 8), int(middim / 8), kernel_size=3, stride=1, padding=1)
+        # self.in3_1 = nn.InstanceNorm2d(int(middim / 8))
+        # self.conv3_2 = nn.Conv2d(int(middim / 8), int(middim / 8), kernel_size=3, stride=1, padding=1)
+        # self.in3_2 = nn.InstanceNorm2d(int(middim / 8))
+        # self.conv1x1 = nn.Conv2d(int(middim / 8), 1, kernel_size=1, stride=1, padding=0)
+        #----------------------------------------------------jxt decoder----------------------------------------------------------
 
 
     @beartype
@@ -388,9 +565,6 @@ class MeshEncoderDecoder(Module):
         2DConv输入：        (batch_size, C, H, W)
         Linear输入：        仅对最后一个维度从输入变成输出
         '''
-        # face_embed=torch.randn(6, 22500, 576).to(device)
-        # discrete_face_coords, em_embed, in_em1 = 0,0,in_em.to(device) #居然和前处理也没关系。。。
-
         face_embed = face_embed.reshape(-1,face_embed.shape[0],face_embed.shape[-1])#从(1,25000,576)变成(25000,1,576)
         '''(L B C)'''
         checksize(face_embed)
@@ -416,13 +590,11 @@ class MeshEncoderDecoder(Module):
         in_em1,
         device
     ):
-        in_angle = torch.stack([in_em1[1]/180, in_em1[2]/360]).t().float().to(device).unsqueeze(1)#我草 我直接在这儿除不就好了 我是呆呆比 还写了个incidentangle_norm()
-        in_freq = in_em1[3].t().float().unsqueeze(1).unsqueeze(1).to(device)
+        in_angle = torch.stack([in_em1[1], in_em1[2]]).t().float().to(device).unsqueeze(1)
+        in_freq = in_em1[3].t().float().unsqueeze(1).unsqueeze(1)
         condangle1 = self.incident_angle_linear1(in_angle)
         condangle2 = self.incident_angle_linear2(in_angle)
-        # condangle1 = self.sig1(self.incident_angle_linear1(in_angle)) #为了避免值太大干扰主变量？
-        # condangle2 = self.sig2(self.incident_angle_linear2(in_angle))
-        condfreq1 = self.incident_freq_linear1(in_freq)#缩放因子，加强频率的影响，因为现在看来频率没啥影响，网络还没学到根据频率而变..不大行 发现是应该要归一化
+        condfreq1 = self.incident_freq_linear1(in_freq)
         condfreq2 = self.incident_freq_linear2(in_freq)
         #---------------conv1d+fc bottleneck---------------
         x = x.reshape(x.shape[1], x.shape[2], -1)  # 1DConv输入：Reshape to (batch_size, input_channel, seq_len)
@@ -435,7 +607,7 @@ class MeshEncoderDecoder(Module):
         x = self.fc1d1(x)
         checksize(x)
         x = x + condangle2
-        x = x + 10*condfreq2 #试图放大freq的影响 要是还不够，就在decoder Transformer里每一层都加上freq因素，就像原始的带skip connection的Unet一样
+        x = x + condfreq2
 
         #-------------SwinTransformer Decoder--------------
         x = x.reshape(x.shape[0],45*90,-1)
@@ -457,8 +629,6 @@ class MeshEncoderDecoder(Module):
         device='cpu',
         lgrcs=False,
     ):
-        # t.toc('  刚进来',restart=True)
-        
         # tic = time.time()
 #------------------------------------------------------------------进Encoder---------------------------------------------------------------------------------------------
         # print('\n')
@@ -471,10 +641,7 @@ class MeshEncoderDecoder(Module):
             in_em = in_em,
             logger = logger
         )
-        # encoded = torch.randn(21, 6, 576).to(device) #破案了 原来真的是encoder的问题，那就是token太长了的原因 他的前几层贡献的
-        # in_em1 = in_em
-
-        # t.toc('  encoder',restart=True)
+        t.toc('  encoder',restart=True)
         # print('\nencoder:')
         # tic = toc(tic) #耗时0.0145s
 #------------------------------------------------------------------进Decoder---------------------------------------------------------------------------------------------
@@ -483,7 +650,7 @@ class MeshEncoderDecoder(Module):
             in_em1,
             device
         )
-        # t.toc('  decoder',restart=True)
+        t.toc('  decoder',restart=True)
         # print('decoder:')
         # tic = toc(tic) #耗时0.0109s
 #------------------------------------------------------------------出Decoder了，后面都是算loss等后处理---------------------------------------------------------------------
@@ -535,5 +702,5 @@ class MeshEncoderDecoder(Module):
             # logger.info(f"PSNR: {psnr_list} , Mean PSNR: {mean_psnr:.2f}, SSIM: {ssim_list}, Mean SSIM: {mean_ssim:.4f}")
             # print('mean_mse:')
             # tic = toc(tic) #耗时2.0270s
-            # t.toc('  后处理',restart=True)
+            t.toc('  后处理',restart=True)
             return loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse

@@ -7,7 +7,7 @@ from net.utils import checksize
 
 
 class Mlp(nn.Module):
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.SiLU, drop=0.):
+    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -176,7 +176,7 @@ class SwinTransformerBlock(nn.Module):
 
     def __init__(self, dim, input_resolution, num_heads, window_size=9, shift_size=0, #window_size=7改成了9
                  mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0.,
-                 act_layer=nn.SiLU, norm_layer=nn.LayerNorm):
+                 act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
@@ -289,21 +289,21 @@ class PatchExpand(nn.Module):
         super().__init__()
         self.input_resolution = input_resolution
         self.dim = dim
-        self.expand = nn.Linear(dim, 2*dim, bias=False) if dim_scale==2 else nn.Identity() #nn.Identity网络结构占位层 不是这个也太逗了 用nn.Linear来Expand
+        self.expand = nn.Linear(dim, 2*dim, bias=False) if dim_scale==2 else nn.Identity() #nn.Identity网络结构占位层
         self.norm = norm_layer(dim // dim_scale)
 
     def forward(self, x):
         """
         x: B, H*W, C
         """
-        H, W = self.input_resolution #torch.Size([1, 4050, 24])
+        H, W = self.input_resolution
         x = self.expand(x)
-        B, L, C = x.shape #torch.Size([1, 4050, 48])
+        B, L, C = x.shape
         # assert L == H * W, "input feature has wrong size" #感觉这个可以先不管 不行的话把H W改成45 90
 
         # x = x.view(B, H, W, C)
-        x = rearrange(x, 'b l (p c)-> b (l p) c', p=4, c=C//4) #torch.Size([1, 16200, 12])
-        # x = x.view(B,-1,C//4)
+        x = rearrange(x, 'b l (p c)-> b (l p) c', p=4, c=C//4)
+        x = x.view(B,-1,C//4)
         x= self.norm(x)
 
         return x
@@ -429,7 +429,7 @@ class SwinTransformerSys(nn.Module): #他就是改了这里
             int(embed_dim*2**(self.num_layers-1-i_layer))) if i_layer > 0 else nn.Identity()
             if i_layer ==0 :
                 layer_up = PatchExpand(input_resolution=(patches_resolution[0] // (2 ** (self.num_layers-1-i_layer)),
-                patches_resolution[1] // (2 ** (self.num_layers-1-i_layer))), dim=int(embed_dim*8), dim_scale=2, norm_layer=norm_layer) #这里dim改了
+                patches_resolution[1] // (2 ** (self.num_layers-1-i_layer))), dim=int(embed_dim*8), dim_scale=2, norm_layer=norm_layer) #这里dim改了 96改成24
             else:
                 layer_up = BasicLayer_up(dim=int(embed_dim*8 // 2**(i_layer)),
                                 input_resolution=(patches_resolution[0] // (2 ** (self.num_layers-1-i_layer)), #这里是input_resolution的地方

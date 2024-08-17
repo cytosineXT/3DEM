@@ -756,7 +756,7 @@ class TransformerEncoderLayer(Module):
     # self-attention block
     def _sa_block(self, x: Tensor,
                   attn_mask: Optional[Tensor], key_padding_mask: Optional[Tensor], is_causal: bool = False) -> Tensor:
-        x = self.self_attn(x, x, x,
+        x = self.self_attn(x, x, x, #哦哦哦这一行是输入QKV的注意力层 就是自注意力
                            attn_mask=attn_mask,
                            key_padding_mask=key_padding_mask,
                            need_weights=False, is_causal=is_causal)[0]
@@ -991,7 +991,6 @@ class PositionalEncoding(Module):
 
     def forward(self, x):
         return x + self.pe[:x.size(0), :]# 将位置编码加到输入张量上，并返回结果
-
 
 
 class TransformerWithPooling(Module):

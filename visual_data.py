@@ -21,7 +21,9 @@ corrupted_files = []
 # rcsdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 Liang
 # rcsdir = r'/home/jiangxiaotian/datasets/mul2347_train' #T7920 Liang
 # rcsdir = r'/home/jiangxiaotian/datasets/mul2347_6val' #T7920 Liang
-rcsdir = r'/home/jiangxiaotian/datasets/mul2347_6smallval' #T7920 Liang
+# rcsdir = r'/home/jiangxiaotian/datasets/mul2347_6smallval' #T7920 Liang
+# rcsdir = r'/home/jiangxiaotian/datasets/mul2347_6smallval' #T7920 Liang
+rcsdir = r'/home/jiangxiaotian/datasets/mul2347_mie_pretrain' #T7920 Liang
 
 total_size = 0
 for root, dirs, files in os.walk(rcsdir):
