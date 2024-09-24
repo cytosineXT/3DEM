@@ -447,6 +447,16 @@ class SwinTransformerSys(nn.Module): #他就是改了这里
             self.layers_up.append(layer_up)
             self.concat_back_dim.append(concat_linear)
 
+        #在这儿定义的freq embed
+        self.condfreq = nn.ModuleList()
+        figsize = [4050,16200,64800,259200]
+        for i_layer in range(self.num_layers):
+            condfreq1 =  nn.Sequential(
+                nn.Linear(1, 8),
+                nn.SiLU(),
+                nn.Linear(8,figsize[i_layer]))
+            self.condfreq.append(condfreq1)
+
         self.norm = norm_layer(self.num_features)
         self.norm_up= norm_layer(self.embed_dim)
 
@@ -476,8 +486,14 @@ class SwinTransformerSys(nn.Module): #他就是改了这里
 
     #Dencoder and Skip connection
     # def forward_up_features(self, x, x_downsample): #多的，应该就是融合特征的操作
-    def forward_up_features(self, x): #多的，应该就是融合特征的操作
+    def forward_up_features(self, x, in_freq): #多的，应该就是融合特征的操作
         for inx, layer_up in enumerate(self.layers_up):
+            # # 在这里做freq嵌入--------------
+            condfreq1 = self.condfreq[inx](in_freq)
+            condfreq1 =  condfreq1.squeeze().unsqueeze(2).repeat(1, 1, x.shape[2])
+            x = x + condfreq1
+            # # 在这里做freq嵌入--------------
+            
             x = layer_up(x)
             checksize(x)
         x = self.norm_up(x)  # B L C
@@ -492,8 +508,8 @@ class SwinTransformerSys(nn.Module): #他就是改了这里
         x = self.output(x) 
         return x
 
-    def forward(self, x):
-        x = self.forward_up_features(x) #在这儿调用self.layers_up完成上采样
+    def forward(self, x, in_freq):
+        x = self.forward_up_features(x,in_freq) #在这儿调用self.layers_up完成上采样
         x = self.up_x4(x) #最后重布局并用1x1的2D卷积完成结果图输出
         return x
 

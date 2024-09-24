@@ -32,7 +32,7 @@ if str(ROOT) not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 # epoch = 1000
-epoch = 60
+epoch = 80
 use_preweight = True
 use_preweight = False
 lgrcs = True
@@ -64,14 +64,17 @@ valdir = r'/home/jiangxiaotian/datasets/mul2347_mie_6smallval'
 # valdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
 pretrainweight = r'./output/test/0731_puretransM_Adam0.001lr_miepretrain4/last.pt' #T7920
 
+
 learning_rate = 0.001  # 初始学习率
-lr_time = 60 # 10
+lr_time = 80 # 10
 cudadevice = 'cuda:0'
 batchsize = 6 #1卡6是极限了 0卡10是极限
 encoder_layer = 6
 decoder_outdim = 12 # 3S 6M 12L
 paddingsize = 18000
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0817_puretrans_pretrain_bigfreq'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+from datetime import datetime
+date = datetime.today().strftime("%m%d")
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /f'{date}_puretrans_pretrain_freqembed8x6_'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 lossessavedir = os.path.join(save_dir,'loss.png')

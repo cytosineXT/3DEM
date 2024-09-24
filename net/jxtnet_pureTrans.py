@@ -247,9 +247,14 @@ class MeshEncoderDecoder(Module):
         self.emnoangle_embed = nn.Embedding(num_discrete_emnoangle, dim_emnoangle_embed) #jxt
         self.discretize_emangle = partial(discretize, num_discrete = num_discrete_emangle, continuous_range = coor_continuous_range) #jxt
         self.emangle_embed = nn.Embedding(num_discrete_emangle, dim_emangle_embed) #jxt 128 64
-        self.discretize_emfreq = partial(discretize, num_discrete = num_discrete_emfreq, continuous_range = (0.,1.0)) #2024年5月11日15:28:15我草 是不是没必要离散，这个情况，是不是其实我的freq本身其实就已经离散的了，不用我再人为离散化一次？只是embedding的时候他映射到embedding空间之后，隐含的空间关系就能实现我“连续回归”的目的？而且280个点离散到128个离散值，本身就有问题吧你妈的
 
+        #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
+        #感觉还是要离散化一下，现在直接用mlp做嵌入学不到东西。2024年9月21日20:02:05 
+        self.discretize_emfreq = partial(discretize, num_discrete = num_discrete_emfreq, continuous_range = (0.,1.0)) #2024年5月11日15:28:15我草 是不是没必要离散，这个情况，是不是其实我的freq本身其实就已经离散的了，不用我再人为离散化一次？只是embedding的时候他映射到embedding空间之后，隐含的空间关系就能实现我“连续回归”的目的？而且280个点离散到128个离散值，本身就有问题吧你妈的
         self.emfreq_embed = nn.Embedding(num_discrete_emfreq, dim_emfreq_embed) #jxt
+        #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
+
+
         # self.enfc0 = nn.Linear(4,22500,device=device) #为什么我的embedding层都能有梯度学出来，linear就不能学呢
         self.enmlp0 = nn.Sequential(
             nn.Linear(4, 4, bias=True,device=device),
@@ -278,11 +283,19 @@ class MeshEncoderDecoder(Module):
                 nn.LayerNorm(decoder_outdim*8*45*90)).to(device)
         self.swinunet = SwinTransformerSys(embed_dim=decoder_outdim,window_size=9).to(device) #我给的是这个 其他都是自己算出来的
         self.incident_angle_linear1 = nn.Linear(2, int(self.paddingsize/(2**encoder_layer)))
-        self.sig1 = nn.Sigmoid()
-        self.sig2 = nn.Sigmoid()
-        self.incident_freq_linear1 = nn.Linear(1, int(self.paddingsize/(2**encoder_layer)))
+        # self.sig1 = nn.Sigmoid()
+        # self.sig2 = nn.Sigmoid()
+        # self.incident_freq_linear1 = nn.Linear(1, int(self.paddingsize/(2**encoder_layer)))
+        self.incident_freq_linear1 = nn.Sequential(
+                nn.Linear(1, 8),
+                nn.SiLU(),
+                nn.Linear(8,int(self.paddingsize/(2**encoder_layer)))).to(device)
         self.incident_angle_linear2 = nn.Linear(2, decoder_outdim*8*45*90)
-        self.incident_freq_linear2 = nn.Linear(1, decoder_outdim*8*45*90)
+        # self.incident_freq_linear2 = nn.Linear(1, decoder_outdim*8*45*90)
+        self.incident_freq_linear2 = nn.Sequential(
+                nn.Linear(1, 8),
+                nn.SiLU(),
+                nn.Linear(8,decoder_outdim*8*45*90)).to(device)
         t.toc('  初始化结束',restart=True)
 
 
@@ -354,13 +367,17 @@ class MeshEncoderDecoder(Module):
         discrete_emangle = self.discretize_emangle(derived_features['emangle']) #jxt torch.Size([2, 20804, 3])好像有点问题，这dim2的三个值怎么都是一样的
         emangle_embed = self.emangle_embed(discrete_emangle) #jxt torch.Size([2, 20804, 3])
         # cemangle = self.emangle_embed()
+
+        #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
         # discrete_emfreq = self.discretize_emfreq(derived_features['emfreq']) #emfreq本来就是离散的 #jxt 2024年5月11日13:36:50我草是不是发现了一个bug，没用对离散法。
         discrete_emfreq = self.discretize_emfreq(incident_freq_mtx) #emfreq本来就是离散的 #jxt 2024年5月11日13:36:50我草是不是发现了一个bug，没用对离散法。
         discrete_emfreq_grad = incident_freq_mtx.clone()
         discrete_emfreq_grad[...] = discrete_emfreq
         # discrete_emfreq2 = self.discretize_emfreq2(incident_freq_mtx) #emfreq本来就是离散的 #jxt 2024年5月11日13:36:50我草是不是发现了一个bug，没用对离散法。
-
+        #在做face预处理的时候用了一次freq的freq_embed，得到的是多少来着我忘了，但是在后面decoder里用的又不是这个。
         emfreq_embed = self.emfreq_embed(discrete_emfreq_grad.long()) #好像是带梯度的 但是我忘了有没有搞定了
+        #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
+
 
         discrete_face_coords = self.discretize_face_coords(face_coords) #先把face_coords离散化
         discrete_face_coords = rearrange(discrete_face_coords, 'b nf nv c -> b nf (nv c)') # 9 or 12 coordinates per face #重新排布
@@ -417,13 +434,18 @@ class MeshEncoderDecoder(Module):
         device
     ):
         in_angle = torch.stack([in_em1[1]/180, in_em1[2]/360]).t().float().to(device).unsqueeze(1)#我草 我直接在这儿除不就好了 我是呆呆比 还写了个incidentangle_norm()
-        in_freq = in_em1[3].t().float().unsqueeze(1).unsqueeze(1).to(device)
+
+        #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
+        in_freq = in_em1[3].t().float().unsqueeze(1).unsqueeze(1).to(device) #这里是又得到了，然后用的mlp做嵌入 但是应该用离散embed做嵌入，能不能把之前的拿过来，得到的是什么样子的变量
+
         condangle1 = self.incident_angle_linear1(in_angle)
         condangle2 = self.incident_angle_linear2(in_angle)
         # condangle1 = self.sig1(self.incident_angle_linear1(in_angle)) #为了避免值太大干扰主变量？
         # condangle2 = self.sig2(self.incident_angle_linear2(in_angle))
         condfreq1 = self.incident_freq_linear1(in_freq)#缩放因子，加强频率的影响，因为现在看来频率没啥影响，网络还没学到根据频率而变..不大行 发现是应该要归一化
         condfreq2 = self.incident_freq_linear2(in_freq)
+        #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
+        
         #---------------conv1d+fc bottleneck---------------
         x = x.reshape(x.shape[1], x.shape[2], -1)  # 1DConv输入：Reshape to (batch_size, input_channel, seq_len)
         checksize(x)
@@ -435,12 +457,12 @@ class MeshEncoderDecoder(Module):
         x = self.fc1d1(x)
         checksize(x)
         x = x + condangle2
-        x = x + 10*condfreq2 #试图放大freq的影响 要是还不够，就在decoder Transformer里每一层都加上freq因素，就像原始的带skip connection的Unet一样
+        x = x + condfreq2 #试图放大freq的影响 要是还不够，就在decoder Transformer里每一层都加上freq因素，就像原始的带skip connection的Unet一样
 
         #-------------SwinTransformer Decoder--------------
         x = x.reshape(x.shape[0],45*90,-1)
         checksize(x)
-        x = self.swinunet(x)
+        x = self.swinunet(x,in_freq)
         checksize(x)
         return x.squeeze(dim=1)
 
