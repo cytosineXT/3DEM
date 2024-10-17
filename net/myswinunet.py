@@ -451,10 +451,11 @@ class SwinTransformerSys(nn.Module): #他就是改了这里
         self.condfreq = nn.ModuleList()
         figsize = [4050,16200,64800,259200]
         for i_layer in range(self.num_layers):
-            condfreq1 =  nn.Sequential(
-                nn.Linear(1, 8),
-                nn.SiLU(),
-                nn.Linear(8,figsize[i_layer]))
+            condfreq1 =  nn.Embedding(512, figsize[i_layer])
+            # condfreq1 =  nn.Sequential(
+            #     nn.Linear(1, 8),
+            #     nn.SiLU(),
+            #     nn.Linear(8,figsize[i_layer]))
             self.condfreq.append(condfreq1)
 
         self.norm = norm_layer(self.num_features)
@@ -490,7 +491,7 @@ class SwinTransformerSys(nn.Module): #他就是改了这里
         for inx, layer_up in enumerate(self.layers_up):
             # # 在这里做freq嵌入--------------
             condfreq1 = self.condfreq[inx](in_freq)
-            condfreq1 =  condfreq1.squeeze().unsqueeze(2).repeat(1, 1, x.shape[2])
+            condfreq1 =  condfreq1.squeeze(1).unsqueeze(2).repeat(1, 1, x.shape[2]) #草 batchsize是1时会报错
             x = x + condfreq1
             # # 在这里做freq嵌入--------------
             

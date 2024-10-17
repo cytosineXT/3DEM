@@ -282,7 +282,7 @@ def process_files(file_paths, device='cpu'):
         faceedges_list.append(faceedge)
         geoinfo_list.append(geoinfo)
 
-    # 找到需要填充到的最大大小
+    # 找到需要填充到的最大大小 完成了padding
     max_faces_size = max(f.shape[1] for f in faces_list)
     max_verts_size = max(v.shape[1] for v in verts_list)
     max_faceedges_size = max(fe.shape[1] for fe in faceedges_list)

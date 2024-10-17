@@ -32,7 +32,7 @@ if str(ROOT) not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 # epoch = 1000
-epoch = 80
+epoch = 100
 use_preweight = True
 use_preweight = False
 lgrcs = True
@@ -60,21 +60,22 @@ rcsdir = r'/home/jiangxiaotian/datasets/mul2347_mie_pretrain' #T7920 Liang
 # rcsdir = r'/home/jiangxiaotian/datasets/mul2347_train' #T7920 Liang
 # valdir = r'/home/jiangxiaotian/datasets/mul2347_6val'
 valdir = r'/home/jiangxiaotian/datasets/mul2347_mie_6smallval'
-# valdir = r'/home/jiangxiaotian/datasets/mul2347_6smallval'
 # valdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
+# valdir = r'/home/jiangxiaotian/datasets/mul2347_6smallval'
 pretrainweight = r'./output/test/0731_puretransM_Adam0.001lr_miepretrain4/last.pt' #T7920
 
-
+alpha = 0.2
 learning_rate = 0.001  # 初始学习率
-lr_time = 80 # 10
+lr_time = epoch # 10
+# lr_time = 80 # 10
 cudadevice = 'cuda:0'
-batchsize = 6 #1卡6是极限了 0卡10是极限
+batchsize = 4 #1卡6是极限了 0卡10是极限
 encoder_layer = 6
 decoder_outdim = 12 # 3S 6M 12L
 paddingsize = 18000
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /f'{date}_puretrans_pretrain_freqembed8x6_'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /f'{date}_puretrans_pretrain_conloss_{alpha}alpha'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 lossessavedir = os.path.join(save_dir,'loss.png')
@@ -86,7 +87,7 @@ logger = get_logger(logdir)
 logger.info(f'使用net.jxtnet_pureTrans')
 
 # logger.info(f'使用jxtnet_transformerEncoder.py')
-logger.info(f'参数设置：batchsize={batchsize}, epoch={epoch}, use_preweight={use_preweight}, cudadevice={cudadevice}, threshold={threshold}, learning_rate={learning_rate}, lr_time={lr_time}, shuffle={shuffle}, multigpu={multigpu}, lgrcs={lgrcs}')
+logger.info(f'参数设置：batchsize={batchsize}, epoch={epoch}, use_preweight={use_preweight}, cudadevice={cudadevice}, threshold={threshold}, learning_rate={learning_rate}, lr_time={lr_time}, shuffle={shuffle}, multigpu={multigpu}, lgrcs={lgrcs}, alpha={alpha}')
 logger.info(f'数据集用{rcsdir}训练')
 logger.info(f'保存到{lastsavedir}')
 
@@ -118,12 +119,13 @@ device = torch.device(cudadevice if torch.cuda.is_available() else "cpu")
 # device = 'cpu'
 logger.info(f'device:{device}')
 
-autoencoder = MeshEncoderDecoder( #这里实例化，是进去跑了init
+autoencoder = MeshEncoderDecoder( #这里实例化，是进去跑了init 草 但是这里还是用的paddingsize
     num_discrete_coors = 128,
     device= device,
     paddingsize = paddingsize,
     decoder_outdim = decoder_outdim, #决定了decoder的size 12L 6M 3S
-    encoder_layer = encoder_layer #决定了encoder的层数
+    encoder_layer = encoder_layer, #决定了encoder的层数
+    alpha = alpha
 )
 get_model_memory(autoencoder,logger)
 
@@ -304,7 +306,7 @@ for i in range(epoch):
     plt.savefig(msesavedir)
     plt.close()
     # plt.show()
-    if i % 20 == 0 or i == -1: #存指定倍数轮的checkpoint
+    if (i+1) % 20 == 0 or i == -1: #存指定倍数轮的checkpoint
         valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
 
 logger.info(f"损坏的文件：{corrupted_files}")

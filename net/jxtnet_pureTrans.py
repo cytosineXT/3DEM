@@ -1,8 +1,8 @@
 # from pathlib import Path
 from functools import partial
 from math import  pi, degrees
-import math
-import time
+# import math
+# import time
 import torch
 from torch import nn, Tensor
 from torch.nn import Module
@@ -20,6 +20,9 @@ import numpy as np
 from net.mytransformer import PositionalEncoding,TransformerWithPooling
 from net.myswinunet import SwinTransformerSys
 from pytictoc import TicToc
+import trimesh
+import glob
+import os
 
 t = TicToc()
 t.tic()
@@ -66,6 +69,133 @@ class TVL1Loss(nn.Module):
         total_loss = loss_L1 + tvloss * self.beta
         # print(f'l1loss:{loss_L1},tvloss:{tvloss},totalloss:{total_loss}')
         return total_loss
+
+# Convert spherical coordinates to cartesian
+def spherical_to_cartesian(theta, phi, device="cpu"):
+    return torch.tensor([torch.sin(phi) * torch.cos(theta),
+                         torch.sin(phi) * torch.sin(theta),
+                         torch.cos(phi)], device=device, dtype=torch.float32)
+
+# Calculate the projected area of a triangle for a given view vector
+def calculate_projected_area(normal, area, view_vector):
+    dot_product = torch.dot(normal, view_vector)
+    return area * torch.abs(dot_product)
+
+# Calculate angular similarity between two views
+def angular_similarity(mesh, view1, view2, weight_area=0.5, weight_normals=0.5, device="cpu"):
+    view_vector1 = spherical_to_cartesian(view1[0], view1[1], device=device)
+    view_vector2 = spherical_to_cartesian(view2[0], view2[1], device=device)
+
+    normals = torch.tensor(mesh.face_normals, dtype=torch.float32, device=device)
+    areas = torch.tensor(mesh.area_faces, dtype=torch.float32, device=device)
+
+    area_view1 = 0.
+    area_view2 = 0.
+    for face_idx in range(len(mesh.faces)):
+        normal = normals[face_idx]
+        area = areas[face_idx]
+        projected_area1 = calculate_projected_area(normal, area, view_vector1)
+        projected_area2 = calculate_projected_area(normal, area, view_vector2)
+        if torch.dot(normal, view_vector1) < 0:
+            area_view1 += projected_area1
+        if torch.dot(normal, view_vector2) < 0:
+            area_view2 += projected_area2
+
+    projected_areas_difference = torch.abs(area_view1 - area_view2)
+    similarity = 1 / (1 + 10 * projected_areas_difference.item())
+    similarity = max(0, min(similarity, 1))
+    return similarity, 1 - similarity
+
+# Calculate frequency similarity (absolute difference)
+def frequency_similarity(freq1, freq2):
+    diff = torch.abs(freq1 - freq2)
+    similarity = 1 - diff  # 直接使用差值的反转作为相似性
+    return similarity, diff
+
+# Custom contrastive loss for angles and frequencies
+
+class ContrastiveLoss(nn.Module):
+    def __init__(self, margin=0.1, obj_folder='planes/'):
+        super(ContrastiveLoss, self).__init__()
+        self.margin = margin
+        self.obj_folder = obj_folder
+
+    def load_mesh(self, plane_name):
+        # Get the first 4 characters of the plane name
+        plane_prefix = plane_name[:4]
+
+        # Find the .obj file that matches the plane_prefix in the folder
+        matching_files = glob.glob(os.path.join(self.obj_folder, f'{plane_prefix}*.obj'))
+        if len(matching_files) == 0:
+            raise FileNotFoundError(f"No matching .obj file found for {plane_name}")
+        
+        # Load the first matching file (assuming there's only one match)
+        obj_file = matching_files[0]
+        # print(f"Loading mesh for {plane_name} from {obj_file}")
+        
+        # Load the mesh using trimesh
+        mesh = trimesh.load(obj_file)
+        return mesh
+
+    def forward(self, rcs, in_em,device, beta=0.1):
+        batch_size = rcs.shape[0]  # 6 in your case
+
+        # Split in_em into plane names, incident angles (2 values), and frequency (1 value)
+        plane_names = in_em[0]  # shape: (batch_size,)
+        angles = in_em[1:3]     # shape: (6, 2) - second and third columns are the incident angles
+        freqs = in_em[3]        # shape: (6,) - fourth column is the frequency
+
+        # Initialize the total loss and pair counter
+        total_loss = 0.0
+        pair_count = 0
+
+        # Loop over all pairs of RCS matrices in the batch
+        for i in range(batch_size):
+            # Load the mesh for the current plane name
+            # mesh_i = self.load_mesh(plane_names[i])
+
+            for j in range(i + 1, batch_size):
+                # Only compare samples from the same plane
+                if plane_names[i] == plane_names[j]:
+                    # Extract the RCS matrices for the ith and jth samples
+                    rcs_i = rcs[i]  # shape: (360, 720)
+                    rcs_j = rcs[j]  # shape: (360, 720)
+
+                    # Compute the MSE loss between the two RCS matrices
+                    rcs_loss = F.mse_loss(rcs_i, rcs_j)
+
+                    # Load the mesh for the jth plane name
+                    mesh_j = self.load_mesh(plane_names[j])
+
+                    # Compute the angle similarity between the ith and jth samples
+                    view1 = (np.radians(angles[0][i]), np.radians(angles[1][i]))
+                    view2 = (np.radians(angles[0][j]), np.radians(angles[1][j]))
+                    
+                    # Use the mesh from the ith plane (since both planes are the same here)
+                    angle_sim, angle_dif = angular_similarity(mesh_j, view1, view2, weight_area=0.5, weight_normals=0., device=device)
+
+                    # Compute the frequency similarity between the ith and jth samples
+                    freq_sim, freq_dif = frequency_similarity(freqs[i], freqs[j])
+
+                    # Calculate angle and frequency losses
+                    angle_loss = rcs_loss * angle_sim - max(0, rcs_loss - self.margin) * angle_dif
+                    freq_loss = rcs_loss * freq_sim - max(0, rcs_loss - self.margin) * freq_dif
+
+                    # Combine the two losses
+                    pairwise_loss = beta * angle_loss + freq_loss
+
+                    # Accumulate the pairwise loss
+                    total_loss += pairwise_loss
+
+                    # Increment the pair counter since we found a matching pair
+                    pair_count += 1
+
+        # Return the total contrastive loss, averaged by the number of valid pairs
+        if pair_count > 0:
+            return total_loss / pair_count
+        else:
+            # If no pairs were found, return zero loss
+            return torch.tensor(0.0, device=rcs.device)
 
 def median_filter2d(img, kernel_size=5):
     pad_size = kernel_size // 2    # 计算 padding 大小
@@ -220,11 +350,13 @@ class MeshEncoderDecoder(Module):
         device = 'cpu',
         hidden_size = 576,
         paddingsize = 22500,
-        encoder_layer = 6
+        encoder_layer = 6,
+        alpha = 0.1,
         
     ): #我草 这里面能调的参也太NM多了吧 这炼丹能练死人
         super().__init__()
         t.toc('  初始化开始',restart=True)
+        self.alpha = alpha
         self.device = device
         self.paddingsize = paddingsize
         self.hidden_size = hidden_size
@@ -252,15 +384,23 @@ class MeshEncoderDecoder(Module):
         #感觉还是要离散化一下，现在直接用mlp做嵌入学不到东西。2024年9月21日20:02:05 
         self.discretize_emfreq = partial(discretize, num_discrete = num_discrete_emfreq, continuous_range = (0.,1.0)) #2024年5月11日15:28:15我草 是不是没必要离散，这个情况，是不是其实我的freq本身其实就已经离散的了，不用我再人为离散化一次？只是embedding的时候他映射到embedding空间之后，隐含的空间关系就能实现我“连续回归”的目的？而且280个点离散到128个离散值，本身就有问题吧你妈的
         self.emfreq_embed = nn.Embedding(num_discrete_emfreq, dim_emfreq_embed) #jxt
+        self.emfreq_embed1 = nn.Embedding(num_discrete_emfreq, int(self.paddingsize/(2**encoder_layer))) #jxt
+        self.emfreq_embed2 = nn.Embedding(num_discrete_emfreq, decoder_outdim*8*45*90) #jxt
+
         #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
 
 
         # self.enfc0 = nn.Linear(4,22500,device=device) #为什么我的embedding层都能有梯度学出来，linear就不能学呢
-        self.enmlp0 = nn.Sequential(
-            nn.Linear(4, 4, bias=True,device=device),
-            nn.SiLU(),
-            nn.Linear(4, self.paddingsize, bias=True,device=device),
-        )
+        # self.enmlp0 = nn.Sequential(
+        #     nn.Linear(4, 4, bias=True,device=device),
+        #     nn.SiLU(),
+        #     nn.Linear(4, self.paddingsize, bias=True,device=device),
+        # )
+        # self.enmlp00 = nn.Sequential(
+        #     nn.Linear(1, 4, bias=True,device=device),
+        #     nn.SiLU(),
+        #     nn.Linear(4, self.paddingsize, bias=True,device=device),
+        # )
         # self.enfc0.weight.data = self.enfc0.weight.data.to(torch.float64)
         # self.enfc0.bias.data = self.enfc0.bias.data.to(torch.float64)
 
@@ -286,16 +426,16 @@ class MeshEncoderDecoder(Module):
         # self.sig1 = nn.Sigmoid()
         # self.sig2 = nn.Sigmoid()
         # self.incident_freq_linear1 = nn.Linear(1, int(self.paddingsize/(2**encoder_layer)))
-        self.incident_freq_linear1 = nn.Sequential(
-                nn.Linear(1, 8),
-                nn.SiLU(),
-                nn.Linear(8,int(self.paddingsize/(2**encoder_layer)))).to(device)
+        # self.incident_freq_linear1 = nn.Sequential(
+        #         nn.Linear(1, 8),
+        #         nn.SiLU(),
+        #         nn.Linear(8,int(self.paddingsize/(2**encoder_layer)))).to(device)
         self.incident_angle_linear2 = nn.Linear(2, decoder_outdim*8*45*90)
-        # self.incident_freq_linear2 = nn.Linear(1, decoder_outdim*8*45*90)
-        self.incident_freq_linear2 = nn.Sequential(
-                nn.Linear(1, 8),
-                nn.SiLU(),
-                nn.Linear(8,decoder_outdim*8*45*90)).to(device)
+        # # self.incident_freq_linear2 = nn.Linear(1, decoder_outdim*8*45*90)
+        # self.incident_freq_linear2 = nn.Sequential(
+        #         nn.Linear(1, 8),
+        #         nn.SiLU(),
+        #         nn.Linear(8,decoder_outdim*8*45*90)).to(device)
         t.toc('  初始化结束',restart=True)
 
 
@@ -332,11 +472,16 @@ class MeshEncoderDecoder(Module):
          tensor([ 60, 210,  30, 150,  30, 210,  60, 330, 150,  30]), 
          tensor([0.9142, 0.7557, 0.9015, 0.6822, 0.5867, 0.5681, 0.7617, 0.5124, 0.5747, 0.9309], device='cuda:0', dtype=torch.float64)]
         '''
-        mixfreqgeo = torch.cat([geoinfo, in_em[3].unsqueeze(1)], dim=1).float() #对数频率加上几何信息
-        incident_freq_mtx=self.enmlp0(mixfreqgeo) #加上几何信息的对数频率经过fc，理想中应该生成高端的归一化电尺寸
+        # ------------------------------带几何信息的-------------------------------------------------------
+        # mixfreqgeo = torch.cat([geoinfo, in_em[3].unsqueeze(1)], dim=1).float() #对数频率加上几何信息
+        # incident_freq_mtx=self.enmlp0(mixfreqgeo) #加上几何信息的对数频率经过fc，理想中应该生成高端的归一化电尺寸
+        # ------------------------------带几何信息的-------------------------------------------------------
+
+        incident_freq_mtx=lg_emfreq.unsqueeze(1).repeat(1,self.paddingsize).float() #不加几何信息的对数频率经过fc
+        
         # incident_freq_mtx=self.enfc0(mixfreqgeo) #加上几何信息的对数频率经过fc，理想中应该生成高端的归一化电尺寸
         # incident_freq_mtx=self.enkan0(mixfreqgeo)
-        Ka_emfreq = incident_freq_mtx.clone() #归一化电尺寸保存
+        # Ka_emfreq = incident_freq_mtx.clone() #归一化电尺寸保存
         # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{lg_emfreq}，fc后归一化电尺度{kan_emfreq[0]}，sigmoid后{incident_freq_mtx[0]}')
         # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{lg_emfreq}，fc后归一化电尺度{Ka_emfreq[0]}')
         # geomtx = (torch.Tensor(geoinfo).unsqueeze(1).expand(-1, area.shape[1], -1)).to(device)
@@ -353,7 +498,7 @@ class MeshEncoderDecoder(Module):
         # print(f'Encoder Step1用时应该已经到头了，时间来自derive里：{(time.time()-ticc):.4f}s')
         # ticc = time.time()
 
-        in_em2 = [in_em1[0],EMincvec,in_em1[3]]
+        # in_em2 = [in_em1[0],EMincvec,in_em1[3]]
 
         discrete_angle = self.discretize_angle(derived_features['angles'])
         angle_embed = self.angle_embed(discrete_angle)
@@ -369,14 +514,21 @@ class MeshEncoderDecoder(Module):
         # cemangle = self.emangle_embed()
 
         #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
-        # discrete_emfreq = self.discretize_emfreq(derived_features['emfreq']) #emfreq本来就是离散的 #jxt 2024年5月11日13:36:50我草是不是发现了一个bug，没用对离散法。
-        discrete_emfreq = self.discretize_emfreq(incident_freq_mtx) #emfreq本来就是离散的 #jxt 2024年5月11日13:36:50我草是不是发现了一个bug，没用对离散法。
-        discrete_emfreq_grad = incident_freq_mtx.clone()
-        discrete_emfreq_grad[...] = discrete_emfreq
-        # discrete_emfreq2 = self.discretize_emfreq2(incident_freq_mtx) #emfreq本来就是离散的 #jxt 2024年5月11日13:36:50我草是不是发现了一个bug，没用对离散法。
-        #在做face预处理的时候用了一次freq的freq_embed，得到的是多少来着我忘了，但是在后面decoder里用的又不是这个。
-        emfreq_embed = self.emfreq_embed(discrete_emfreq_grad.long()) #好像是带梯度的 但是我忘了有没有搞定了
+        # 2024年9月26日16:47:22 感觉这里真的有点问题，前面用mlp0把频率和几何尺寸（长4）变成了归一化电尺寸（18000）的频率矩阵 然后这里又把经过mlp0的变量塞进了离散嵌入，得到了emfreq_embed，感觉有点夸张，首先离散方法就错了，不是0-1了，然后这样是不是也有问题了。
+        # ------------------------------带几何信息的-------------------------------------------------------
+        # # discrete_emfreq = self.discretize_emfreq(derived_features['emfreq']) #emfreq本来就是离散的 #jxt 2024年5月11日13:36:50我草是不是发现了一个bug，没用对离散法。
+        # discrete_emfreq = self.discretize_emfreq(incident_freq_mtx) #emfreq本来就是离散的 #jxt 2024年5月11日13:36:50我草是不是发现了一个bug，没用对离散法。
+        # discrete_emfreq_grad = incident_freq_mtx.clone()
+        # discrete_emfreq_grad[...] = discrete_emfreq
+        # # discrete_emfreq2 = self.discretize_emfreq2(incident_freq_mtx) #emfreq本来就是离散的 #jxt 2024年5月11日13:36:50我草是不是发现了一个bug，没用对离散法。
+        # # #在做face预处理的时候用了一次freq的freq_embed，得到的是多少来着我忘了，但是在后面decoder里用的又不是这个。
+        # emfreq_embed = self.emfreq_embed(discrete_emfreq_grad.long()) #好像是带梯度的 但是我忘了有没有搞定了 torch.Size([6, 18000, 16])
+        # ------------------------------带几何信息的-------------------------------------------------------
+        #下面是不带几何信息的
+        discrete_emfreq = self.discretize_emfreq(incident_freq_mtx) 
+        emfreq_embed = self.emfreq_embed(discrete_emfreq).float()
         #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
+
 
 
         discrete_face_coords = self.discretize_face_coords(face_coords) #先把face_coords离散化
@@ -391,11 +543,12 @@ class MeshEncoderDecoder(Module):
         # print(f'Encoder Step4用时：{(time.time()-ticc):.4f}s')
         # ticc = time.time()
         # em_embed, _ = pack([emangle_embed, emfreq_embed, derived_features['emfreq'], derived_features['geoinfo'], mixfreqgeo_embed], 'b nf *') #torch.Size([2, 20804, 3, 64]) , torch.Size([2, 20804, 1, 16]) 64*3+16=204
-        em_embed, _ = pack([emangle_embed, emfreq_embed, incident_freq_mtx], 'b nf *') #torch.Size([2, 20804, 3, 64]) , torch.Size([2, 20804, 1, 16]) 64*3+16=204
-        face_embed = self.project_in2(face_embed) #通过一个nn.linear线性层映射到codebook的维度 从1056到192
+        # em_embed, _ = pack([emangle_embed, emfreq_embed, incident_freq_mtx], 'b nf *') #torch.Size([2, 20804, 3, 64]) , torch.Size([2, 20804, 1, 16]) 64*3+16=204
+        # face_embed = self.project_in2(face_embed) #通过一个nn.linear线性层映射到codebook的维度 从1056到192
         # print(f'Encoder Step5用时fc映射也没法加速：{(time.time()-ticc):.4f}s')
         # ticc = time.time()
 
+        face_embed = self.project_in2(face_embed) #通过一个nn.linear线性层映射到codebook的维度 从1056到192
         checksize(face_embed)
         # orig_face_embed_shape = face_embed.shape[:2]
 
@@ -424,34 +577,40 @@ class MeshEncoderDecoder(Module):
         if not return_face_coordinates:
             return face_embed
 
-        return face_embed, discrete_face_coords, em_embed, in_em1#, in_em_angle_vec
+        return face_embed, discrete_face_coords, in_em1, lg_emfreq#, in_em_angle_vec
 
     @beartype
     def decode( #decoder输入：torchsize(1,33564,576) 长度33564待定，维度576固定
         self,
-        x,
+        x, #torch.Size([6, 576, 281])
         in_em1,
-        device
+        device,
+        lg_emfreq
     ):
         in_angle = torch.stack([in_em1[1]/180, in_em1[2]/360]).t().float().to(device).unsqueeze(1)#我草 我直接在这儿除不就好了 我是呆呆比 还写了个incidentangle_norm()
 
         #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
-        in_freq = in_em1[3].t().float().unsqueeze(1).unsqueeze(1).to(device) #这里是又得到了，然后用的mlp做嵌入 但是应该用离散embed做嵌入，能不能把之前的拿过来，得到的是什么样子的变量
+        # in_freq = in_em1[3].t().float().unsqueeze(1).unsqueeze(1).to(device) #这里是又得到了，然后用的mlp做嵌入 但是应该用离散embed做嵌入，能不能把之前的拿过来，得到的是什么样子的变量
+        '''tensor([[[0.7492]],  [[0.8482]],  [[0.9227]],   [[0.9204]],   [[0.9010]],   [[0.7291]]], device='cuda:0')'''
 
         condangle1 = self.incident_angle_linear1(in_angle)
         condangle2 = self.incident_angle_linear2(in_angle)
         # condangle1 = self.sig1(self.incident_angle_linear1(in_angle)) #为了避免值太大干扰主变量？
         # condangle2 = self.sig2(self.incident_angle_linear2(in_angle))
-        condfreq1 = self.incident_freq_linear1(in_freq)#缩放因子，加强频率的影响，因为现在看来频率没啥影响，网络还没学到根据频率而变..不大行 发现是应该要归一化
-        condfreq2 = self.incident_freq_linear2(in_freq)
+        # condfreq1 = self.incident_freq_linear1(in_freq)  #缩放因子，加强频率的影响，因为现在看来频率没啥影响，网络还没学到根据频率而变..不大行 发现是应该要归一化
+        # condfreq2 = self.incident_freq_linear2(in_freq)
+
+        discretized_freq = self.discretize_emfreq(lg_emfreq) 
+        condfreq1 = self.emfreq_embed1(discretized_freq).unsqueeze(1)
+        condfreq2 = self.emfreq_embed2(discretized_freq).unsqueeze(1)
         #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
         
         #---------------conv1d+fc bottleneck---------------
         x = x.reshape(x.shape[1], x.shape[2], -1)  # 1DConv输入：Reshape to (batch_size, input_channel, seq_len)
         checksize(x)
-        x = self.conv1d1(x)
+        x = self.conv1d1(x) #571变1
         checksize(x)
-        x = x + condangle1
+        x = x + condangle1 #torch.Size([6, 1, 281])
         x = x + condfreq1
 
         x = self.fc1d1(x)
@@ -462,7 +621,7 @@ class MeshEncoderDecoder(Module):
         #-------------SwinTransformer Decoder--------------
         x = x.reshape(x.shape[0],45*90,-1)
         checksize(x)
-        x = self.swinunet(x,in_freq)
+        x = self.swinunet(x,discretized_freq)
         checksize(x)
         return x.squeeze(dim=1)
 
@@ -485,7 +644,7 @@ class MeshEncoderDecoder(Module):
 #------------------------------------------------------------------进Encoder---------------------------------------------------------------------------------------------
         # print('\n')
         checksize(faces)
-        encoded, __, em_embed, in_em1 = self.encode( #从这儿进encode里 返回的encoded就是那一个跑了一溜SAGEConv得到的face_embed.size = torch.Size([1, 33564, 576]), face_coordinates.shape = torch.Size([1, 33564, 9])是一个面3个点9个坐标点？为啥一个面是tensor([35, 60, 55, 35, 60, 55, 35, 60, 55]) 我知道了因为128^3离散化了
+        encoded, __, in_em1, lg_emfreq = self.encode( #从这儿进encode里 返回的encoded就是那一个跑了一溜SAGEConv得到的face_embed.size = torch.Size([1, 33564, 576]), face_coordinates.shape = torch.Size([1, 33564, 9])是一个面3个点9个坐标点？为啥一个面是tensor([35, 60, 55, 35, 60, 55, 35, 60, 55]) 我知道了因为128^3离散化了
             vertices = vertices, #顶点
             faces = faces, #面
             geoinfo = geoinfo,
@@ -503,7 +662,8 @@ class MeshEncoderDecoder(Module):
         decoded = self.decode( #从这儿进decoder里，进decoder的只有quantized，没有codes！所以是什么我也不用关心了其实，我只要把他大小对准塞进去就行。
             encoded, #quantized.shape = torch.Size([1, 33564, 576])
             in_em1,
-            device
+            device,
+            lg_emfreq
         )
         # t.toc('  decoder',restart=True)
         # print('decoder:')
@@ -525,6 +685,7 @@ class MeshEncoderDecoder(Module):
             return decoded
         else:
             GT = GT[:,:-1,:] #361*720变360*720
+            #------------------------------------------------------------------------
             if lgrcs == True:
                 epsilon = 0.001 #防止lg0的鲁棒机制
                 # logger.info(f'初始GT:{GT[0]}')
@@ -532,12 +693,17 @@ class MeshEncoderDecoder(Module):
                 # logger.info(f'lg后GT:{GT[0]}')
                 # logger.info(f'再变回去的GT:{torch.pow(10, GT)[0]}')
                 # GT = torch.pow(10, GT) #反变换在这里
+            #------------------------------------------------------------------------
             TVL1loss = TVL1Loss(beta=1.0) #我草 发现一个错误  pixel_dif1 = images[1:, :, :] - images[:-1, :, :] 但是GT.shape = torch.Size([1, 360, 720])，第一项是batchsize。。。
-            # TVL1loss = TVL1Loss(beta=0.00001)
             loss = TVL1loss(decoded,GT)/(GT.shape[0]) #平均了batch的loss
             # print('TVL1loss:')
             # tic = toc(tic)
 
+            conloss = ContrastiveLoss(margin=0.15)
+            loss2 = conloss(decoded, in_em, device=device)
+            # total_loss = loss
+            total_loss = loss + self.alpha * loss2 #alpha是权重
+            # logger.info(f'L1loss={loss:.4f}, Contrastiveloss={loss2:.4f}, alpha={self.alpha}, total_loss={total_loss:.4f}')
             with torch.no_grad():
                 psnr_list = psnr(decoded, GT)
                 # print('psnrssim:')
@@ -558,4 +724,5 @@ class MeshEncoderDecoder(Module):
             # print('mean_mse:')
             # tic = toc(tic) #耗时2.0270s
             # t.toc('  后处理',restart=True)
-            return loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse
+            # return loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse
+            return total_loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse
