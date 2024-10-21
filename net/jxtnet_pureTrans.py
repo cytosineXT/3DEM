@@ -177,9 +177,12 @@ class ContrastiveLoss(nn.Module):
                     # Compute the frequency similarity between the ith and jth samples
                     freq_sim, freq_dif = frequency_similarity(freqs[i], freqs[j])
 
+                    # # Calculate angle and frequency losses
+                    # angle_loss = rcs_loss * angle_sim - max(0, rcs_loss - self.margin) * angle_dif
+                    # freq_loss = rcs_loss * freq_sim - max(0, rcs_loss - self.margin) * freq_dif
                     # Calculate angle and frequency losses
-                    angle_loss = rcs_loss * angle_sim - max(0, rcs_loss - self.margin) * angle_dif
-                    freq_loss = rcs_loss * freq_sim - max(0, rcs_loss - self.margin) * freq_dif
+                    angle_loss = rcs_loss * angle_sim - max(0, angle_dif - self.margin) * rcs_loss
+                    freq_loss = rcs_loss * freq_sim - max(0, freq_dif - self.margin) * rcs_loss
 
                     # Combine the two losses
                     pairwise_loss = beta * angle_loss + freq_loss
@@ -698,11 +701,13 @@ class MeshEncoderDecoder(Module):
             loss = TVL1loss(decoded,GT)/(GT.shape[0]) #平均了batch的loss
             # print('TVL1loss:')
             # tic = toc(tic)
-
-            conloss = ContrastiveLoss(margin=0.15)
-            loss2 = conloss(decoded, in_em, device=device)
-            # total_loss = loss
-            total_loss = loss + self.alpha * loss2 #alpha是权重
+            
+            if self.alpha!=0.0:
+                conloss = ContrastiveLoss(margin=0.15)
+                loss2 = conloss(decoded, in_em, device=device)
+                total_loss = loss + self.alpha * loss2 #alpha是权重
+            else:
+                total_loss = loss
             # logger.info(f'L1loss={loss:.4f}, Contrastiveloss={loss2:.4f}, alpha={self.alpha}, total_loss={total_loss:.4f}')
             with torch.no_grad():
                 psnr_list = psnr(decoded, GT)

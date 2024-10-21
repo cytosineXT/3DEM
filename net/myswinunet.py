@@ -284,7 +284,7 @@ class SwinTransformerBlock(nn.Module):
         flops += self.dim * H * W
         return flops
 
-class PatchExpand(nn.Module):
+class PatchExpand0(nn.Module):
     def __init__(self, input_resolution, dim, dim_scale=2, norm_layer=nn.LayerNorm):
         super().__init__()
         self.input_resolution = input_resolution
@@ -307,6 +307,46 @@ class PatchExpand(nn.Module):
         x= self.norm(x)
 
         return x
+    
+class PatchExpand(nn.Module):
+    def __init__(self, input_resolution, dim, dim_scale=2, norm_layer=nn.LayerNorm):
+        super().__init__()
+        self.input_resolution = input_resolution
+        self.dim = dim
+        self.dim_scale = dim_scale
+
+        # Expand the input dimension
+        self.expand = nn.Linear(dim, 2*dim, bias=False) if dim_scale==2 else nn.Identity() #nn.Identity网络结构占位层 不是这个也太逗了 用nn.Linear来Expand
+        
+        # Apply normalization after reshaping
+        self.norm = norm_layer(dim // dim_scale) #12
+        
+        # PixelShuffle to increase spatial resolution
+        self.pixel_shuffle = nn.PixelShuffle(dim_scale)
+
+    def forward(self, x):
+        """
+        x: (B, H*W, C)
+        """
+        H, W = self.input_resolution
+        x = self.expand(x)  # Expand feature dimension
+        B, L, C = x.shape
+
+        # Reshape to (B, H, W, C) -> (B, C, H, W) for PixelShuffle
+        x = x.view(B, H, W, C).permute(0, 3, 1, 2)
+
+        # Apply PixelShuffle (C must be divisible by dim_scale**2)
+        x = self.pixel_shuffle(x)
+
+        # Reshape back to (B, H*W, C//4)
+        B, C, H, W = x.size()
+        x = x.permute(0, 2, 3, 1).view(B, -1, C)
+
+        # Apply LayerNorm on the last dimension
+        x = self.norm(x) #expected input with shape [*, 6], but got input of size[1, 16200, 24]
+
+        return x
+
 
 class BasicLayer_up(nn.Module): #多的，copy来自定义的上采样模块
     """ A basic Swin Transformer layer for one stage.
