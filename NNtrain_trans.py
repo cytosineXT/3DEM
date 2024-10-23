@@ -75,7 +75,7 @@ decoder_outdim = 12 # 3S 6M 12L
 paddingsize = 18000
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /f'{date}_puretrans_pretrain_conloss_fixmargin_{alpha}alpha'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /f'{date}_puretrans_pretrain_conloss_fixmargin_pixelexpand_{alpha}alpha'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 lossessavedir = os.path.join(save_dir,'loss.png')

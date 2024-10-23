@@ -296,13 +296,13 @@ class PatchExpand0(nn.Module):
         """
         x: B, H*W, C
         """
-        H, W = self.input_resolution #torch.Size([1, 4050, 24])
+        H, W = self.input_resolution #torch.Size([1, 4050, 24]) #torch.Size([4, 4050, 96])
         x = self.expand(x)
-        B, L, C = x.shape #torch.Size([1, 4050, 48])
+        B, L, C = x.shape #torch.Size([1, 4050, 48]) #(4, 4050, 192)
         # assert L == H * W, "input feature has wrong size" #感觉这个可以先不管 不行的话把H W改成45 90
 
         # x = x.view(B, H, W, C)
-        x = rearrange(x, 'b l (p c)-> b (l p) c', p=4, c=C//4) #torch.Size([1, 16200, 12])
+        x = rearrange(x, 'b l (p c)-> b (l p) c', p=4, c=C//4) #torch.Size([1, 16200, 12]) #torch.Size([4, 16200, 48])
         # x = x.view(B,-1,C//4)
         x= self.norm(x)
 
@@ -314,13 +314,10 @@ class PatchExpand(nn.Module):
         self.input_resolution = input_resolution
         self.dim = dim
         self.dim_scale = dim_scale
-
         # Expand the input dimension
         self.expand = nn.Linear(dim, 2*dim, bias=False) if dim_scale==2 else nn.Identity() #nn.Identity网络结构占位层 不是这个也太逗了 用nn.Linear来Expand
-        
         # Apply normalization after reshaping
         self.norm = norm_layer(dim // dim_scale) #12
-        
         # PixelShuffle to increase spatial resolution
         self.pixel_shuffle = nn.PixelShuffle(dim_scale)
 
@@ -328,23 +325,19 @@ class PatchExpand(nn.Module):
         """
         x: (B, H*W, C)
         """
-        H, W = self.input_resolution
-        x = self.expand(x)  # Expand feature dimension
         B, L, C = x.shape
-
-        # Reshape to (B, H, W, C) -> (B, C, H, W) for PixelShuffle
-        x = x.view(B, H, W, C).permute(0, 3, 1, 2)
-
-        # Apply PixelShuffle (C must be divisible by dim_scale**2)
-        x = self.pixel_shuffle(x)
-
-        # Reshape back to (B, H*W, C//4)
-        B, C, H, W = x.size()
+        aaa = [(45,90), (90,180), (180,360), (360,720)]
+        # H, W = self.input_resolution #torch.Size([4, 4050, 96])
+        for aa in aaa:
+            if aa[0]*aa[1]==L:
+                H,W = aa[0],aa[1]
+        x = self.expand(x)  # Expand feature dimension torch.Size([4, 4050, 192])
+        B, L, C = x.shape
+        x = x.view(B, H, W, C).permute(0, 3, 1, 2) # Reshape to (B, H, W, C) -> (B, C, H, W) for PixelShuffle
+        x = self.pixel_shuffle(x) # Apply PixelShuffle (C must be divisible by dim_scale**2)
+        B, C, H, W = x.size() # Reshape back to (B, H*W, C//4)
         x = x.permute(0, 2, 3, 1).view(B, -1, C)
-
-        # Apply LayerNorm on the last dimension
-        x = self.norm(x) #expected input with shape [*, 6], but got input of size[1, 16200, 24]
-
+        x = self.norm(x) # Apply LayerNorm on the last dimension # error: expected input with shape [*, 6], but got input of size[1, 16200, 24]
         return x
 
 
