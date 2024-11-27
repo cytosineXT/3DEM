@@ -35,23 +35,27 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-batchsize = 2 #1卡12是极限了 0卡10是极限
+accumulation_step = 8
+batchsize = 8 #1卡12是极限了 0卡10是极限
 # epoch = 1000
 epoch = 60
 use_preweight = True
 use_preweight = False
 cudadevice = 'cuda:0'
+# cudadevice = 'cpu'
 lgrcs = True
 lgrcs = False
 
 threshold = 20
-learning_rate = 0.001  # 初始学习率
-lr_time = 20
+learning_rate = 0.01  # 初始学习率
+# lr_time = 20
+lr_time = epoch # 10
 
 shuffle = True
 # shuffle = False
 multigpu = False 
 
+paddingsize = 22500
 bestloss = 100000
 epoch_loss1 = 0.
 in_ems = []
@@ -69,8 +73,9 @@ corrupted_files = []
 rcsdir = r'/home/jiangxiaotian/datasets/mulbb7c_mie_pretrain' #T7920 Liang
 valdir = r'/home/jiangxiaotian/datasets/mulbb7c_mie_val'
 pretrainweight = r'./output/train/0615upconv4fckan_mul2347pretrain_000/last.pt' #T7920
-
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /'1121_GNN'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+from datetime import datetime
+date = datetime.today().strftime("%m%d")
+save_dir = str(increment_path(Path(ROOT / "output" / "test" /f'{date}_GNN_{learning_rate}lr'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 # save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0518upconv3L1_b827_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
@@ -122,7 +127,7 @@ logger.info(f'device:{device}')
 autoencoder = MeshAutoencoder( #这里实例化，是进去跑了init
     num_discrete_coors = 128,
     device= device,
-    # paddingsize = paddingsize #25000
+    paddingsize = paddingsize #25000
 )
 get_model_memory(autoencoder,logger)
 
@@ -135,11 +140,17 @@ else:
 # if device.type=='cuda' and torch.cuda.device_count() > 1 and multigpu == True:
 #     print(f"use {torch.cuda.device_count()} GPUs!")
 #     autoencoder = DP(autoencoder)
-autoencoder = autoencoder.to(device)
-# optimizer = torch.optim.SGD(autoencoder.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-4)
-optimizer = torch.optim.Adam(autoencoder.parameters(), lr=learning_rate, weight_decay=1e-4)
+# autoencoder = autoencoder.to(device)
+# # optimizer = torch.optim.SGD(autoencoder.parameters(), lr=0.001, momentum=0.9, weight_decay=1e-4)
+# optimizer = torch.optim.Adam(autoencoder.parameters(), lr=learning_rate, weight_decay=1e-4)
 
+# scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=lr_time)# CosineAnnealingLR使用余弦函数调整学习率，可以更平滑地调整学习率
+
+autoencoder = autoencoder.to(device)
+# optimizer = torch.optim.SGD(autoencoder.parameters(), lr=learning_rate, momentum=0.9, weight_decay=1e-4)
+optimizer = torch.optim.Adam(autoencoder.parameters(), lr=learning_rate, weight_decay=1e-4)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=lr_time)# CosineAnnealingLR使用余弦函数调整学习率，可以更平滑地调整学习率
+
 
 flag = 1
 GTflag = 1
@@ -171,11 +182,14 @@ for i in range(epoch):
             outrcs = torch.pow(10, outrcs)
         if batchsize > 1:
             # tqdm.write(f'loss:{loss.tolist()}')
-            loss=loss.sum()
+            loss=loss.mean() / accumulation_step #loss.sum()改成loss.mean()
             loss.backward() #这一步很花时间，但是没加optimizer是白给的
+            # print('--loss.backward：')
+            # tic=toc(tic)
         else:
-            # outem = [int(in_em1[0][0]), int(in_em1[0][1]), float(f'{in_em1[0][2]:.3f}')]
-            # tqdm.write(f'em:{outem},loss:{loss.item():.4f}')
+            outem = [int(in_em1[1]), int(in_em1[2]), float(f'{in_em1[3].item():.3f}')]
+            tqdm.write(f'em:{outem},loss:{loss.item():.4f}')
+            loss=loss / accumulation_step
             loss.backward()
         epoch_loss=epoch_loss + loss.item()
         torch.nn.utils.clip_grad_norm_(autoencoder.parameters(), max_norm=threshold)
@@ -191,16 +205,16 @@ for i in range(epoch):
         if flag == 1:
             # print(f'rcs:{outrcs.shape},em:{in_em1}in{in_em1.shape}')
             # print(f'rcs0{outrcs[0]==outrcs[0,:]}')
-            drawrcs = outrcs[0]
+            drawrcs = outrcs[0].unsqueeze(0)
             # drawem = torch.stack(in_em1[1:]).t()[0]
             drawem = torch.stack(in_em0[1:]).t()[0]
-            drawGT = rcs1[0]
+            drawGT = rcs1[0][:-1,:].unsqueeze(0)
             drawplane = in_em0[0][0]
             flag = 0
         for j in range(torch.stack(in_em0[1:]).t().shape[0]):
             # print(f'em:{in_em1[0]},drawem:{drawem}')
             if flag == 0 and torch.equal(torch.stack(in_em0[1:]).t()[j], drawem):
-                drawrcs = outrcs[j]
+                drawrcs = outrcs[j].unsqueeze(0)
                 break
                 # print(drawrcs.shape)
     p = psnr(drawrcs.to(device), drawGT.to(device))
@@ -210,14 +224,14 @@ for i in range(epoch):
         outGTpngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_GT.png')
         out2DGTpngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_2DGT.png')
         # plotRCS2(rcs=drawGT, savedir=outGTpngpath, logger=logger)
-        plot2DRCS(rcs=drawGT, savedir=out2DGTpngpath, logger=logger,cutmax=None)
+        plot2DRCS(rcs=drawGT.squeeze(), savedir=out2DGTpngpath, logger=logger,cutmax=None)
         GTflag = 0
         logger.info('已画GT图')
     if i == 0 or i % 50 == 0: #存指定倍数轮时画某张图看训练效果
         outrcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}.png')
         out2Drcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}_psnr{p.item():.2f}_ssim{s.item():.4f}_mse{m:.4f}_2D.png')
         # plotRCS2(rcs=drawrcs, savedir=outrcspngpath, logger=logger)
-        plot2DRCS(rcs=drawrcs, savedir=out2Drcspngpath, logger=logger,cutmax=None)
+        plot2DRCS(rcs=drawrcs.squeeze(), savedir=out2Drcspngpath, logger=logger,cutmax=None)
         logger.info(f'已画{i}轮图')
 
     epoch_loss1 = epoch_loss

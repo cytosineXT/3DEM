@@ -1,3 +1,4 @@
+'''这版带了Diffusion plugin'''
 #C:/ProgramData/Anaconda3/envs/jxtnet/python.exe -u d:/workspace/jxtnet/NNtrain_dataset.py > log0423san.txt
 # python -u NNtrain_upconv.py > ./log0430upconvtest.txt
 #SCREEN ctrl+D删除 ctrl+AD关闭 screen -S name创建 screen -r name回复 screen -ls查看list
@@ -6,10 +7,10 @@ import torch
 import time
 from tqdm import tqdm
 # from net.jxtnet_upConv5 import MeshAutoencoder
-# from net.jxtnet_DiTDecoder import MeshAutoencoder
+from net.jxtnet_DiTDecoder import MeshAutoencoder
 # from net.jxtnet_upConv4_InsNorm import MeshAutoencoder
 # from net.jxtnet_upConv4_relu import MeshAutoencoder
-from net.jxtnet_upConv4 import MeshAutoencoder
+# from net.jxtnet_upConv4 import MeshAutoencoder
 import torch.utils.data.dataloader as DataLoader
 # from torch.nn.parallel import DistributedDataParallel as DDP
 # from torch.nn.parallel import DataParallel as DP
@@ -22,6 +23,7 @@ matplotlib.use('agg')
 from pathlib import Path
 from net.utils import increment_path, meshRCSDataset, get_logger, get_model_memory, psnr, ssim, find_matching_files, process_files #, get_tensor_memory, transform_to_log_coordinates
 from NNvalfast import plotRCS2, plot2DRCS, valmain
+from diffusion import create_diffusion
 # from pytorch_memlab import profile, set_target_gpu
 
 
@@ -43,6 +45,7 @@ use_preweight = False
 cudadevice = 'cuda:0'
 lgrcs = True
 lgrcs = False
+paddingsize = 18000
 
 threshold = 20
 learning_rate = 0.001  # 初始学习率
@@ -66,11 +69,36 @@ ssims = []
 mses = []
 corrupted_files = []
 
-rcsdir = r'/home/jiangxiaotian/datasets/mulbb7c_mie_pretrain' #T7920 Liang
-valdir = r'/home/jiangxiaotian/datasets/mulbb7c_mie_val'
+rcsdir = r'/home/jiangxiaotian/datasets/mul2347_train' #T7920 Liang
+valdir = r'/home/jiangxiaotian/datasets/mul2347_6val'
+# rcsdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
+# valdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
+# rcsdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 
+# valdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 
+
+# valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_train' #T7920 
+# valdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val_small'
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt' #T7920 
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul26_MieOpt_test100' #T7920 
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_test10' #T7920 
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOpt' #T7920 
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul_MieOptpretrain' #T7920 
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_MieOpt' #T7920 
+# rcsdir = r"/mnt/Disk/jiangxiaotian/puredatasets/b82731071bd39b66e4c15ad8a2edd2e" #T7920 
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen' #T7920 
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_val' #T7920 1300个
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_ctrl9090_test10' #T7920 
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_test10'#T7920 test
+# rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_pretrain'#T7920 pretrain
+# rcsdir = r'/mnt/f/datasets/b827_test10' #305winwsl
+# rcsdir = r'/mnt/f/datasets/mul_test10' #305winwsl
+# rcsdir = r'D:\datasets\mul2347_pretrain' #T640
+# valdir = r'D:\datasets\mul2347_6val' #T640
+# pretrainweight = r'./output/train/0618upconv4_mul2347pretrain_/last.pt' #T7920
 pretrainweight = r'./output/train/0615upconv4fckan_mul2347pretrain_000/last.pt' #T7920
 
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /'1121_GNN'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0704_dit'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 # save_dir = str(increment_path(Path(ROOT / "output" / "train" /'0518upconv3L1_b827_MieOpt'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
@@ -122,8 +150,9 @@ logger.info(f'device:{device}')
 autoencoder = MeshAutoencoder( #这里实例化，是进去跑了init
     num_discrete_coors = 128,
     device= device,
-    # paddingsize = paddingsize #25000
+    paddingsize = paddingsize #25000
 )
+diffusion = create_diffusion(timestep_respacing="")
 get_model_memory(autoencoder,logger)
 
 if use_preweight == True:
@@ -165,6 +194,7 @@ for i in range(epoch):
             logger = logger,
             device = device,
             lgrcs = lgrcs,
+            diffusionplugin = diffusion #开始魔改了
         )
         if lgrcs == True:
             outrcslg = outrcs

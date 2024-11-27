@@ -1,8 +1,8 @@
 import torch
 import time
-# from net.jxtnet_Transupconv_fan import MeshEncoderDecoder
+from net.jxtnet_GNN import MeshEncoderDecoder
 # from net.jxtnet_Transupconv import MeshEncoderDecoder
-from net.jxtnet_pureTrans import MeshEncoderDecoder
+# from net.jxtnet_pureTrans import MeshEncoderDecoder
 from net.utils import increment_path, meshRCSDataset, get_logger, find_matching_files, process_files
 import torch.utils.data.dataloader as DataLoader
 # import trimesh
@@ -228,7 +228,7 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
     plt.close()
 
 
-def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, trainval=False, draw3d=False,lgrcs=True,decoder_outdim=3,encoder_layer=6,paddingsize=18000):
+def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, trainval=False, draw3d=False,lgrcs=True,decoder_outdim=3,encoder_layer=6,paddingsize=18000, n=4, middim=64):
     tic = time.time()
     # pngsavedir = os.path.join(save_dir,'0508_b827_theta90phi330freq0.9_4w_sm.png')
     if trainval == False:
@@ -265,7 +265,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
     if trainval == False:
         logger.info(f'device:{device}')
 
-    autoencoder = MeshEncoderDecoder(num_discrete_coors = 128,decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize).to(device) #这里实例化，是进去跑了init
+    autoencoder = MeshEncoderDecoder(num_discrete_coors = 128,decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,middim=middim).to(device) #这里实例化，是进去跑了init
     autoencoder.load_state_dict(torch.load(weight), strict=False)
     # autoencoder = autoencoder.to(device)
     #-------------------------------------------------------------------------------------
@@ -279,7 +279,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
             loss, outrcs, _, psnrlist, _, ssimlist, mse = autoencoder( #这里使用网络，是进去跑了forward
                 vertices = planesur_verts,
                 faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
-                # face_edges = planesur_faceedges,
+                face_edges = planesur_faceedges,
                 geoinfo = geoinfo, #[area, volume, scale]
                 in_em = in_em1,#.to(device)
                 GT = rcs1.to(device), #这里放真值

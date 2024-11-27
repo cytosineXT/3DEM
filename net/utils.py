@@ -60,14 +60,6 @@ def checksize(x):
 #     else:
 #         return ssim_map.mean(1).mean(1).mean(1)
 
-# def batch_ssim(img1, img2):
-#     batch_size = img1.size(0)
-#     ssim_list = []
-#     for i in range(batch_size):
-#         ssim_val = ssim(img1[i].unsqueeze(0), img2[i].unsqueeze(0))
-#         ssim_list.append(ssim_val)
-#     return torch.tensor(ssim_list)
-
 def ssim(img1, img2, window_size=11, size_average=False):
     img1 = img1.unsqueeze(1)  # [batch_size, 1, height, width]
     img2 = img2.unsqueeze(1)  # [batch_size, 1, height, width]
@@ -114,6 +106,14 @@ def ssim(img1, img2, window_size=11, size_average=False):
     else:
         return ssim_map.mean([1, 2, 3])
     
+# def batch_ssim(img1, img2):
+#     batch_size = img1.size(0)
+#     ssim_list = []
+#     for i in range(batch_size):
+#         ssim_val = ssim(img1[i].unsqueeze(0), img2[i].unsqueeze(0))
+#         ssim_list.append(ssim_val)
+    # return torch.tensor(ssim_list)
+
 # def psnr(img1, img2):
 #     mse = F.mse_loss(img1, img2, reduction='mean')
 #     gtmax = torch.max(img1)
@@ -121,7 +121,26 @@ def ssim(img1, img2, window_size=11, size_average=False):
 #     maxx = torch.max(gtmax, demax)
 #     psnr = 10 * torch.log10(maxx * maxx / mse)
 #     return psnr
-    
+
+# def psnr(img1, img2):
+#     mse = F.mse_loss(img1, img2, reduction='none')
+#     mse = mse.view(mse.size(0), -1).mean(dim=1)  # Compute mean MSE for each image in the batch
+#     maxx = torch.max(img1.view(img1.size(0), -1), dim=1)[0]
+#     psnr = 10 * torch.log10(maxx ** 2 / mse)
+#     return psnr
+
+def psnr(img1, img2): #_with_dynamic_normalization
+    max1 = img1.view(img1.size(0), -1).max(dim=1)[0]  # Max value of img1 for each image in batch
+    max2 = img2.view(img2.size(0), -1).max(dim=1)[0]  # Max value of img2 for each image in batch
+    max_val = torch.max(max1, max2)  # Element-wise max between max1 and max2
+    img1_normalized = img1 / max_val.view(-1, 1, 1, 1)
+    img2_normalized = img2 / max_val.view(-1, 1, 1, 1)
+
+    mse = F.mse_loss(img1_normalized, img2_normalized, reduction='none')
+    mse = mse.view(mse.size(0), -1).mean(dim=1)  # Compute mean MSE for each image in the batch
+    psnr = 10 * torch.log10(1.0 / mse)  # Since normalized images have max_val = 1.0
+    return psnr
+
 # def batch_psnr(img1, img2):
 #     import time
 #     tic = time.time()
@@ -131,13 +150,6 @@ def ssim(img1, img2, window_size=11, size_average=False):
 #         psnrr=psnr(img1[i],img2[i])
 #         psnrlist.append(psnrr)
 #     return torch.tensor(psnrlist)
-
-def psnr(img1, img2):
-    mse = F.mse_loss(img1, img2, reduction='none')
-    mse = mse.view(mse.size(0), -1).mean(dim=1)  # Compute mean MSE for each image in the batch
-    maxx = torch.max(img1.view(img1.size(0), -1), dim=1)[0]
-    psnr = 10 * torch.log10(maxx ** 2 / mse)
-    return psnr
 
 def transform_to_log_coordinates(x):
     if not isinstance(x, torch.Tensor):

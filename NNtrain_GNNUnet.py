@@ -3,8 +3,9 @@
 import torch
 import time
 from tqdm import tqdm
-from net.jxtnet_Transupconv import MeshEncoderDecoder
-# from net.jxtnet_Transupconv_fan import MeshEncoderDecoder
+# from net.jxtnet_Transupconv import MeshEncoderDecoder
+from net.jxtnet_GNNUnet import MeshEncoderDecoder
+from NNvalfast_GNNUnet import  plot2DRCS, valmain#, plotRCS2
 # from net.jxtnet_pureTrans import MeshEncoderDecoder
 import torch.utils.data.dataloader as DataLoader
 # from torch.nn.parallel import DistributedDataParallel as DDP
@@ -17,7 +18,6 @@ import matplotlib.pyplot as plt
 matplotlib.use('agg')
 from pathlib import Path
 from net.utils import increment_path, meshRCSDataset, get_logger, get_model_memory, psnr, ssim, find_matching_files, process_files, get_x_memory#, get_tensor_memory, toc, checksize#, transform_to_log_coordinates
-from NNvalfast import  plot2DRCS, valmain#, plotRCS2
 from pytictoc import TicToc
 t = TicToc()
 t.tic()
@@ -34,7 +34,7 @@ if str(ROOT) not in sys.path:
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 # epoch = 1000
-epoch = 60
+epoch = 120
 use_preweight = True
 use_preweight = False
 draw = False
@@ -44,7 +44,7 @@ shuffle = True
 # shuffle = False
 multigpu = False 
 
-accumulation_step = 8
+accumulation_step = 4
 threshold = 20
 bestloss = 1
 epoch_loss1 = 0.
@@ -57,36 +57,36 @@ ssims = []
 mses = []
 corrupted_files = []
 
-rcsdir = r'/home/jiangxiaotian/datasets/mul2347_mie_pretrain' #T7920 Liang
+# rcsdir = r'/home/jiangxiaotian/datasets/mul2347_mie_pretrain' #T7920 Liang
 # rcsdir = r'/home/jiangxiaotian/datasets/mul2347_mie_train' #T7920 Liang
-# rcsdir = r'/home/jiangxiaotian/datasets/mulbb7c_mie_pretrain' #T7920 Liang
+rcsdir = r'/home/jiangxiaotian/datasets/mulbb7c_mie_pretrain' #T7920 Liang
 # rcsdir = r'/home/jiangxiaotian/datasets/mul2_mie_pretrain' #T7920 Liang
 # rcsdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
 # rcsdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 Liang
 # rcsdir = r'/home/jiangxiaotian/datasets/mul2347_train' #T7920 Liang
 # valdir = r'/home/jiangxiaotian/datasets/mul2347_6val'
 # valdir = r'/home/jiangxiaotian/datasets/mul2347_mie_6smallval'
-# valdir = r'/home/jiangxiaotian/datasets/mulbb7c_mie_val'
+valdir = r'/home/jiangxiaotian/datasets/mulbb7c_mie_val'
 # valdir = r'/home/jiangxiaotian/datasets/mul2347_mie_6val'
 # valdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
-valdir = r'/home/jiangxiaotian/datasets/mul2347_6smallval'
+# valdir = r'/home/jiangxiaotian/datasets/mul2347_6smallval'
 # pretrainweight = r'./output/train/1103_transconv_pretrain_0.0alpha/last.pt' #T7920
-pretrainweight = r'./output/train/1122_transconv_pretrain_bb7c_0.0alpha2/last.pt' #T7920
+pretrainweight = r'./output/train/1114_transconv_pretrain_fanfreq_p2_0.0alpha/last.pt' #T7920
 
+n=8
 alpha = 0.0
 learning_rate = 0.001  # 初始学习率
 lr_time = epoch # 10
 # lr_time = 80 # 10
-cudadevice = 'cuda:1'
-batchsize = 4 #TransUpconv能10 PureTrans只能4
-batchsize = 10
-# batchsize = 4
+cudadevice = 'cuda:0'
+# cudadevice = 'cpu'
+batchsize = 8 #1卡6是极限了 0卡10是极限
 encoder_layer = 6
 decoder_outdim = 12 # 3S 6M 12L
-paddingsize = 18000
+paddingsize = 22500
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /f'{date}_transconv_pretrain_mul2347_{alpha}alpha'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /f'{date}_GNNUnet_pretrain_bb7c_{n}n_sum_120e'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 lossessavedir = os.path.join(save_dir,'loss.png')
@@ -137,7 +137,8 @@ autoencoder = MeshEncoderDecoder( #这里实例化，是进去跑了init 草 但
     paddingsize = paddingsize,
     decoder_outdim = decoder_outdim, #决定了decoder的size 12L 6M 3S
     encoder_layer = encoder_layer, #决定了encoder的层数
-    alpha = alpha
+    alpha = alpha,
+    n=n,
 )
 get_model_memory(autoencoder,logger)
 
@@ -183,6 +184,7 @@ for i in range(epoch):
         loss, outrcs, psnr_mean, _, ssim_mean, _, mse_mean = autoencoder( #这里使用网络，是进去跑了forward 
             vertices = planesur_verts,
             faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
+            face_edges = planesur_faceedges,
             geoinfo = geoinfo, #[area, volume, scale]
             in_em = in_em1,#.to(device)
             GT = rcs1.to(device), #这里放真值
@@ -321,10 +323,14 @@ for i in range(epoch):
     if "pretrain" in rcsdir:
         if (i+1) % 20 == 0 or i == -1: #存指定倍数轮的checkpoint
         # if (i+1) % 1 == 0 or i == -1: #存指定倍数轮的checkpoint
-            valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+            valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,
+                    n=n,
+                    )
     else :
         if (i+1) % 1 == 0 or i == -1: #存指定倍数轮的checkpoint
-            valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+            valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,
+                    n=n,
+                    )
 
 logger.info(f"损坏的文件：{corrupted_files}")
 logger.info(f'训练结束时间：{time.strftime("%Y-%m-%d %H:%M:%S",time.localtime(time.time()))}')

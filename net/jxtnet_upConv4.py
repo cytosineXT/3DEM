@@ -26,7 +26,7 @@ from vector_quantize_pytorch import (
     ResidualVQ,
     ResidualLFQ
 )
-from net.utils import transform_to_log_coordinates, batch_psnr, batch_ssim
+from net.utils import transform_to_log_coordinates, psnr, ssim
 from net.data import derive_face_edges_from_faces
 from net.version import __version__
 from taylor_series_linear_attention import TaylorSeriesLinearAttn
@@ -64,12 +64,13 @@ class TVL1Loss(nn.Module):
 
     def forward(self, decoded, GT):
         # Calculate the MSE loss
-        L1_loss = nn.L1Loss(reduction='sum')
+        L1_loss = nn.L1Loss(reduction='mean')
+        # L1_loss = nn.L1Loss(reduction='sum')
         loss_L1 = L1_loss(decoded, GT)
         tvloss= total_variation(decoded)
         # logger.info(f" tvloss:{tvloss*self.beta:.4f}, L1loss:{loss_L1:.4f}")
-
         total_loss = loss_L1 + tvloss * self.beta
+        # print(f'l1loss:{loss_L1},tvloss:{tvloss},totalloss:{total_loss}')
         return total_loss
 
 def median_filter2d(img, kernel_size=5):
@@ -712,8 +713,10 @@ class MeshAutoencoder(Module):
         checkpoint_quantizer = False,#是否对量化器进行内存检查点
         quads = False,               #是否使用四边形
         middim = 64,
-        device = 'cpu'
+        device = 'cpu',
+        paddingsize = 22500,
     ): #我草 这里面能调的参也太NM多了吧 这炼丹能练死人
+        self.paddingsize = paddingsize
         super().__init__()
         # self.kan0 = KAN([4,64,22500],device=device)
         # self.fc0 = nn.Linear(4,22500,device=device)
@@ -987,24 +990,37 @@ class MeshAutoencoder(Module):
         geoinfo = torch.Tensor(geoinfo).to(device).requires_grad_()
 
         in_obj = in_em[0]
-        in_emfreq = in_em[3].clone()
+
+        #----------------------------入射频率编码---------------------------------------------------
+        in_emfreq = in_em[3].clone() #原始频率保存
         in_em[3]=transform_to_log_coordinates(in_em[3]).to(device) #频率转换为对数坐标 加在encoder里！
-        ln_emfreq = in_em[3].clone()
-        mixfreqgeo = torch.cat([geoinfo, in_em[3].unsqueeze(1)], dim=1).float()
-        # mixfreqgeo = torch.Tensor([sublist + value for sublist, value in zip(geoinfo, in_em[3])]) #torch.size=([batchsize,4])
-        incident_freq_mtx=self.enfc0(mixfreqgeo) #为啥换成fc之后也没有grad。。看来不是kan的问题
+        lg_emfreq = in_em[3].clone() #对数频率保存
+        in_em1 = in_em #[plane,theta,phi,ln(freq)]所有信息存在en_em1里
+        '''
+        [('b943', 'b943', 'bb7c', 'b7fd', 'bb7c', 'b7fd', 'b943', 'b979', 'b979', 'b943'),
+         tensor([150, 180, 180,  90, 120,  30, 150,  90, 180,  90]), 
+         tensor([ 60, 210,  30, 150,  30, 210,  60, 330, 150,  30]), 
+         tensor([0.9142, 0.7557, 0.9015, 0.6822, 0.5867, 0.5681, 0.7617, 0.5124, 0.5747, 0.9309], device='cuda:0', dtype=torch.float64)]
+        '''
+        # ------------------------------带几何信息的-------------------------------------------------------
+        # mixfreqgeo = torch.cat([geoinfo, in_em[3].unsqueeze(1)], dim=1).float() #对数频率加上几何信息
+        # incident_freq_mtx=self.enmlp0(mixfreqgeo) #加上几何信息的对数频率经过fc，理想中应该生成高端的归一化电尺寸
+        # ------------------------------带几何信息的-------------------------------------------------------
+
+        incident_freq_mtx=lg_emfreq.unsqueeze(1).repeat(1,self.paddingsize).float() #不加几何信息的对数频率经过fc
+        
+        # incident_freq_mtx=self.enfc0(mixfreqgeo) #加上几何信息的对数频率经过fc，理想中应该生成高端的归一化电尺寸
         # incident_freq_mtx=self.enkan0(mixfreqgeo)
-        kan_emfreq = incident_freq_mtx.clone()
-        # incident_freq_mtx=torch.sigmoid(incident_freq_mtx) #不用0到1了 就把sigmoid给去了
-        # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}')
-        # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，KAN后归一化电尺度{kan_emfreq}，sigmoid后{incident_freq_mtx}')
-        # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，fc后归一化电尺度{kan_emfreq[0]}，sigmoid后{incident_freq_mtx[0]}')
-        logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，fc后归一化电尺度{kan_emfreq[0]}')
+        # Ka_emfreq = incident_freq_mtx.clone() #归一化电尺寸保存
+        # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{lg_emfreq}，fc后归一化电尺度{kan_emfreq[0]}，sigmoid后{incident_freq_mtx[0]}')
+        # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{lg_emfreq}，fc后归一化电尺度{Ka_emfreq[0]}')
         # geomtx = (torch.Tensor(geoinfo).unsqueeze(1).expand(-1, area.shape[1], -1)).to(device)
+        #----------------------------入射频率编码---------------------------------------------------
 
         #输出torch.Size([2, 20804, 3, 3])  tensor([-0.4463, -0.0323, -0.0037], device='cuda:0') 成功！
         # print(f'Encoder Step000 可删用时：{(time.time()-ticc):.4f}s')
         # ticc = time.time()
+        
 #--------------------------------------------------------face预处理 得到特征--------------------------------------------------------------------------
         # compute derived features and embed
         # 先对内角、面积、法向量进行离散化和embedding
@@ -1318,7 +1334,8 @@ class MeshAutoencoder(Module):
         in_em,
         GT,
         logger,
-        device
+        device,
+        lgrcs=False,
     ):
         ticc = time.time()
         # if isinstance(face_edges, str):
@@ -1387,32 +1404,40 @@ class MeshAutoencoder(Module):
         decoded = gaussian_filter2d(decoded, kernel_size=5, sigma=4, device=device)#两个都用 这个效果好
         decoded = decoded.squeeze(1)
 
+        decoded = decoded[:,:-1,:] #361*720变360*720
+
         if GT == None:
+            # tic = toc(tic)
             return decoded
         else:
-            # print(f'decoded:{decoded.shape},GT:{GT.shape}') #decoded:torch.Size([361, 720]),GT:torch.Size([1, 361, 720])
-            # smooth_loss = SmoothLoss()
-            # loss= smooth_loss(decoded, GT)
-            # mse_loss = nn.MSELoss(reduction='sum')
-            # loss = mse_loss(decoded, GT) #GT是没问题的，会随着batchsize变
-            # l1loss = nn.L1Loss(reduction='sum')
-            # loss = l1loss(decoded,GT)
-            TVL1loss = TVL1Loss(beta=0.1)
-            loss = TVL1loss(decoded,GT)
-            # loss = 1
-
-            # batch_size = GT.size(0)
-            psnr_list = batch_psnr(decoded, GT)
-            ssim_list = batch_ssim(decoded, GT)
-            # mean_psnr = sum(psnr_list) / batch_size
-            mean_psnr = psnr_list.mean()
-            mean_ssim = ssim_list.mean()
+            GT = GT[:,:-1,:] #361*720变360*720
+            #------------------------------------------------------------------------
+            #------------------------------------------------------------------------
+            TVL1loss = TVL1Loss(beta=1.0) #我草 发现一个错误  pixel_dif1 = images[1:, :, :] - images[:-1, :, :] 但是GT.shape = torch.Size([1, 360, 720])，第一项是batchsize。。。
+            loss = TVL1loss(decoded,GT)/(GT.shape[0]) #平均了batch的loss
+            # print('TVL1loss:')
+            # tic = toc(tic)
+            total_loss = loss
+            # logger.info(f'L1loss={loss:.4f}, Contrastiveloss={loss2:.4f}, alpha={self.alpha}, total_loss={total_loss:.4f}')
+            with torch.no_grad():
+                psnr_list = psnr(decoded, GT)
+                # print('psnrssim:')
+                # tic = toc(tic)
+                ssim_list = ssim(decoded, GT)
+                # tic = toc(tic)
+                mean_psnr = psnr_list.mean()
+                # tic = toc(tic)
+                mean_ssim = ssim_list.mean()
+                # tic = toc(tic)
+                # mean_psnr, psnr_list, mean_ssim, ssim_list = 0, [], 0, []
 
             # mean_mse =  F.mse loss(decoded, GT, reduction='mean')
             # mseloss = nn.MSELoss(reduction='mean')
-            with torch.no_grad():
+            # with torch.no_grad():
                 mean_mse = ((decoded-GT) ** 2).sum() / GT.numel()
-            # mean_mse = 1
             # logger.info(f"PSNR: {psnr_list} , Mean PSNR: {mean_psnr:.2f}, SSIM: {ssim_list}, Mean SSIM: {mean_ssim:.4f}")
-
-            return loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse
+            # print('mean_mse:')
+            # tic = toc(tic) #耗时2.0270s
+            # t.toc('  后处理',restart=True)
+            # return loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse
+            return total_loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse

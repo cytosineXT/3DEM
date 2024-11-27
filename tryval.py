@@ -1,8 +1,8 @@
 import torch
 import time
-# from net.jxtnet_Transupconv_fan import MeshEncoderDecoder
+from net.jxtnet_Transupconv_fan import MeshEncoderDecoder
 # from net.jxtnet_Transupconv import MeshEncoderDecoder
-from net.jxtnet_pureTrans import MeshEncoderDecoder
+# from net.jxtnet_pureTrans import MeshEncoderDecoder
 from net.utils import increment_path, meshRCSDataset, get_logger, find_matching_files, process_files
 import torch.utils.data.dataloader as DataLoader
 # import trimesh
@@ -270,6 +270,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
     # autoencoder = autoencoder.to(device)
     #-------------------------------------------------------------------------------------
     with torch.no_grad():
+        timelist = []
         for in_em1,rcs1 in tqdm(dataloader,desc=f'val进度',ncols=70,postfix=f''):
             in_em0 = in_em1.copy()
             objlist , _ = find_matching_files(in_em1[0], "./planes")
@@ -295,7 +296,9 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
             outrcs = outrcs.squeeze()
             rcs1 = rcs1.squeeze()
             if trainval == False:
-                logger.info(f'推理用时：{time.time()-start_time0:.4f}s')
+                thistime = time.time()-start_time0
+                timelist.append(thistime)
+                logger.info(f'推理用时：{(sum(timelist) / len(timelist)):.4f}s')
                 logger.info(f'{plane}, em={eminfo}, loss={loss:.4f}')
             # torch.cuda.empty_cache()
             if draw == True:
@@ -326,10 +329,13 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
         ave_psnr = sum(psnrs)/len(psnrs)
         ave_ssim = sum(ssims)/len(ssims)
         ave_mse = sum(mses)/len(mses)
+        
         if trainval == False:
             logger.info(f"已用{weight}验证{len(losses)}个数据, Mean Loss: {ave_loss:.4f}, Mean PSNR: {ave_psnr:.2f}dB, Mean SSIM: {ave_ssim:.4f}, Mean MSE:{ave_mse:.4f}")
             logger.info(f'val数据集地址:{rcsdir}, 总耗时:{time.strftime("%H:%M:%S", time.gmtime(time.time()-tic))}')
             logger.info(f"损坏的文件：{corrupted_files}")
+            logger.info(f'平均单次推理用时：{(sum(timelist)/len(timelist)):.4f}s')
+
         logger.info(f'val数据集地址:{rcsdir}, 总耗时:{time.strftime("%H:%M:%S", time.gmtime(time.time()-tic))}')
         logger.info(f'↑----val loss:{ave_loss:.4f},psnr:{ave_psnr:.2f},ssim:{ave_ssim:.4f},mse:{ave_mse:.4f}----↑')
         # if epoch % 20 == 0 or epoch == -1: #存指定倍数轮的
@@ -346,27 +352,28 @@ if __name__ == '__main__':
     trainval = False
     cuda = 'cuda:0'
     draw = True
-    # draw = False
+    draw = False
     draw3d = False
     lgrcs = False
     device = torch.device(cuda if torch.cuda.is_available() else "cpu")
     batchsize = 1
-    decoder_outdim = 3
+    decoder_outdim = 12
     encoder_layer = 6
 
     # weight = r'./output/test/0509upconv2_b827_001lr6/best2w.pt'
     # weight = r'./output/test/0514upconv2_b827_10/last.pt'
     # weight = r'./output/train/0605upconv4fckan_mul2347_pretrain3/last.pt'
-    weight = r'./output/train/0615upconv4fckan_mul2347pretrain_000/best.pt'
+    weight = r'./output/train/1113_transconv_finetune_p2_0.0alpha/best.pt'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_ctrl9090_val'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_test10'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/datasets/b827_xiezhen_small'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_val'
-    rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
+    rcsdir = r'/home/jiangxiaotian/datasets/mul2_mie_val' #T7920 Liang
+    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val2'
     # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_train'
 
-    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /'0619_upconv4_mul2347pretrain_val6_'), exist_ok=False))
+    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /'1118_p2'), exist_ok=False))
     logdir = os.path.join(save_dir,'alog.txt')
     logger = get_logger(logdir)
     epoch = -1

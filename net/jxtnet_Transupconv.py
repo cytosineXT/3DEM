@@ -417,7 +417,7 @@ class MeshEncoderDecoder(Module):
         # self.transencoder = nn.TransformerEncoder(nn.TransformerEncoderLayer(d_model=hidden_size, nhead=8, dim_feedforward=256),num_layers=6).to(device)
         #----------------------------------------------------jxt encoder----------------------------------------------------------
         self.transformer_model = TransformerWithPooling(d_model=hidden_size, nhead=4, dim_feedforward=256, num_layers=encoder_layer, pool_size=2, activation='silu').to(device)
-        self.pe = PositionalEncoding(d_model=hidden_size).to(device) #这一行要不要是个问题
+        self.pe = PositionalEncoding(d_model=hidden_size).to(device)
 
         # self.conv1d1 = nn.Conv1d(576, 1, kernel_size=1, stride=1, dilation=1 ,padding=0).to(device)
         # self.fc1d1 = nn.Sequential(
@@ -425,6 +425,7 @@ class MeshEncoderDecoder(Module):
         #         nn.SiLU(),
         #         nn.Linear(int(self.paddingsize/(2**encoder_layer)), decoder_outdim*8*45*90),#388800
         #         nn.LayerNorm(decoder_outdim*8*45*90)).to(device)
+        
         self.conv1d1 = nn.Conv1d(576, decoder_outdim*8, kernel_size=1, stride=1, dilation=1 ,padding=0).to(device) #[351,576]-[351,96]
         self.fc1d1 = nn.Sequential(
                 nn.Linear(int(self.paddingsize/(2**encoder_layer)), int(self.paddingsize/(2**encoder_layer))),
@@ -432,7 +433,32 @@ class MeshEncoderDecoder(Module):
                 nn.Linear(int(self.paddingsize/(2**encoder_layer)), 45*90),#4050
                 nn.LayerNorm(45*90)).to(device) #[351,96]-[45*90,96]
         
-        self.swinunet = SwinTransformerSys(embed_dim=decoder_outdim,window_size=9).to(device) #我给的是这个 其他都是自己算出来的
+        # decoder_outdim*8 = 64
+        # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        # self.fc1d1 = nn.Linear(2250, decoder_outdim*8*45*90)
+        self.upconv1 = nn.ConvTranspose2d(decoder_outdim*8, int(decoder_outdim*8/2), kernel_size=2, stride=2)
+        self.bn1 = nn.BatchNorm2d(int(decoder_outdim*8/2))  # 添加的批量归一化层1
+        self.conv1_1 = nn.Conv2d(int(decoder_outdim*8/2), int(decoder_outdim*8/2), kernel_size=3, stride=1, padding=1)  # 添加的卷积层1
+        self.conv1_2 = nn.Conv2d(int(decoder_outdim*8/2), int(decoder_outdim*8/2), kernel_size=3, stride=1, padding=1)  # 添加的卷积层2
+        self.bn1_1 = nn.BatchNorm2d(int(decoder_outdim*8/2))  # 添加的批量归一化层1
+        self.bn1_2 = nn.BatchNorm2d(int(decoder_outdim*8/2))  # 添加的批量归一化层2
+        self.upconv2 = nn.ConvTranspose2d(int(decoder_outdim*8/2), int(decoder_outdim*8/4), kernel_size=2, stride=2)
+        self.bn2 = nn.BatchNorm2d(int(decoder_outdim*8/4))  # 添加的批量归一化层1
+        self.conv2_1 = nn.Conv2d(int(decoder_outdim*8/4), int(decoder_outdim*8/4), kernel_size=3, stride=1, padding=1)  # 添加的卷积层1
+        self.conv2_2 = nn.Conv2d(int(decoder_outdim*8/4), int(decoder_outdim*8/4), kernel_size=3, stride=1, padding=1)  # 添加的卷积层2
+        self.bn2_1 = nn.BatchNorm2d(int(decoder_outdim*8/4))  # 添加的批量归一化层1
+        self.bn2_2 = nn.BatchNorm2d(int(decoder_outdim*8/4))  # 添加的批量归一化层2
+        self.upconv3 = nn.ConvTranspose2d(int(decoder_outdim*8/4), int(decoder_outdim*8/8), kernel_size=2, stride=2)
+        # self.upconv3 = nn.ConvTranspose2d(int(decoder_outdim*8/4), int(decoder_outdim*8/8), kernel_size=2, stride=2, output_padding=1)
+        self.bn3 = nn.BatchNorm2d(int(decoder_outdim*8/8))
+        self.conv3_1 = nn.Conv2d(int(decoder_outdim*8/8), int(decoder_outdim*8/8), kernel_size=3, stride=1, padding=1)  # 添加的卷积层1
+        self.conv3_2 = nn.Conv2d(int(decoder_outdim*8/8), int(decoder_outdim*8/8), kernel_size=3, stride=1, padding=1)  # 添加的卷积层1
+        self.bn3_1 = nn.BatchNorm2d(int(decoder_outdim*8/8))  # 添加的批量归一化层1
+        self.bn3_2 = nn.BatchNorm2d(int(decoder_outdim*8/8))  # 添加的批量归一化层2
+        self.conv1x1 = nn.Conv2d(int(decoder_outdim*8/8), 1, kernel_size=1, stride=1, padding=0)   #1×1卷积，把多的维度融合了
+
+
+        # self.swinunet = SwinTransformerSys(embed_dim=decoder_outdim,window_size=9).to(device) #我给的是这个 其他都是自己算出来的
         self.incident_angle_linear1 = nn.Linear(2, int(self.paddingsize/(2**encoder_layer)))
         # self.sig1 = nn.Sigmoid()
         # self.sig2 = nn.Sigmoid()
@@ -602,13 +628,8 @@ class MeshEncoderDecoder(Module):
 
         #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
         # in_freq = in_em1[3].t().float().unsqueeze(1).unsqueeze(1).to(device) #这里是又得到了，然后用的mlp做嵌入 但是应该用离散embed做嵌入，能不能把之前的拿过来，得到的是什么样子的变量
-        # '''tensor([[[0.7492]],  [[0.8482]],  [[0.9227]],   [[0.9204]],   [[0.9010]],   [[0.7291]]], device='cuda:0')'''
-        '''
-        Transformer输入：   (seq_len, batch_size, C)    (L B C)
-        1DConv输入：        (batch_size, C, seq_len)
-        2DConv输入：        (batch_size, C, H, W)
-        Linear输入：        仅对最后一个维度从输入变成输出
-        '''
+        '''tensor([[[0.7492]],  [[0.8482]],  [[0.9227]],   [[0.9204]],   [[0.9010]],   [[0.7291]]], device='cuda:0')'''
+
         condangle1 = self.incident_angle_linear1(in_angle)
         condangle2 = self.incident_angle_linear2(in_angle)
         # condangle1 = self.sig1(self.incident_angle_linear1(in_angle)) #为了避免值太大干扰主变量？
@@ -622,26 +643,70 @@ class MeshEncoderDecoder(Module):
         #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
         
         #---------------conv1d+fc bottleneck---------------
-        #torch.Size([281, 10, 576]) 18000就是281
-        x = x.reshape(x.shape[1], x.shape[2], -1)  # 1DConv输入：Reshape to (batch_size, input_channel, seq_len) 
-        #torch.Size([10, 576, 281])
-        # checksize(x)
-        x = self.conv1d1(x) #571变1 #[576,351]-[96,351]
-        # checksize(x)
+        x = x.reshape(x.shape[1], x.shape[2], -1)  # 1DConv输入：Reshape to (batch_size, input_channel, seq_len)
+        checksize(x)
+        x = self.conv1d1(x) #571变1
+        checksize(x)
         x = x + condangle1.repeat(1, x.shape[1], 1) #torch.Size([6, 1, 281]) #torch.Size([6, 96, 281])
         x = x + condfreq1.repeat(1, x.shape[1], 1)
 
         x = self.fc1d1(x) #[96,351]-[96,45*90]
         # checksize(x)
         x = x + condangle2.reshape(-1,x.shape[1],x.shape[2])
-        x = x + condfreq2.reshape(-1,x.shape[1],x.shape[2]) #试图放大freq的影响 要是还不够，就在decoder Transformer里每一层都加上freq因素，就像原始的带skip connection的Unet一样
+        x = x + condfreq2.reshape(-1,x.shape[1],x.shape[2])
 
         #-------------SwinTransformer Decoder--------------
-        x = x.reshape(x.shape[0],45*90,-1)
+        # x = x.reshape(x.shape[0],45*90,-1)
         # checksize(x)
-        x = self.swinunet(x,discretized_freq)
-        # checksize(x)
+
+        # ------------------------1D Conv+FC-----------------------------
+        x = x.view(x.size(0), -1, 45, 90)
+        checksize(x)
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+
+        # ------------------------2D upConv------------------------------
+        x = self.upconv1(x)
+        x = self.bn1(x)
+        x = F.relu(x)
+        x = self.conv1_1(x)
+        x = self.bn1_1(x)
+        x = F.relu(x)
+        x = self.conv1_2(x)
+        x = self.bn1_2(x)
+        x = F.relu(x)
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+
+        x = self.upconv2(x)
+        x = self.bn2(x)
+        x = F.relu(x)
+        x = self.conv2_1(x)
+        x = self.bn2_1(x)
+        x = F.relu(x)
+        x = self.conv2_2(x)
+        x = self.bn2_2(x)
+        x = F.relu(x)
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+
+        x = self.upconv3(x)
+        x = self.bn3(x)
+        x = self.conv3_1(x)
+        x = self.bn3_1(x)
+        x = F.relu(x)
+        x = self.conv3_2(x)
+        x = self.bn3_2(x)
+        x = F.relu(x)
+
+        x = self.conv1x1(x)
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+
+        # x = x[:, :, :, :-1]
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+        # print(f'Decodr用时：{(time.time()-time0):.4f}s')
         return x.squeeze(dim=1)
+    
+        # x = self.swinunet(x,discretized_freq)
+        # checksize(x)
+        # return x.squeeze(dim=1)
 
     @beartype
     def forward(

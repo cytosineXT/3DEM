@@ -5,24 +5,26 @@ from math import  pi, degrees
 # import time
 import torch
 from torch import nn, Tensor
-from torch.nn import Module
+from torch.nn import Module, ModuleList
 import torch.nn.functional as F
 from torchtyping import TensorType
 
 from beartype import beartype
-from beartype.typing import Tuple
+from beartype.typing import Tuple, Optional
 
 from einops import rearrange, pack
 from einops.layers.torch import Rearrange
 
 from net.utils import transform_to_log_coordinates, psnr, ssim, toc, checksize
 import numpy as np
-from net.mytransformer import PositionalEncoding,TransformerWithPooling
-from net.myswinunet import SwinTransformerSys
+# from net.mytransformer import PositionalEncoding,TransformerWithPooling
+# from net.myswinunet import SwinTransformerSys
 from pytictoc import TicToc
 import trimesh
 import glob
 import os
+from net.FANLayer import FANLayer
+from torch_geometric.nn.conv import SAGEConv
 
 t = TicToc()
 t.tic()
@@ -61,8 +63,8 @@ class TVL1Loss(nn.Module):
 
     def forward(self, decoded, GT):
         # Calculate the MSE loss
-        L1_loss = nn.L1Loss(reduction='mean')
-        # L1_loss = nn.L1Loss(reduction='sum')
+        # L1_loss = nn.L1Loss(reduction='mean')
+        L1_loss = nn.L1Loss(reduction='sum')
         loss_L1 = L1_loss(decoded, GT)
         tvloss= total_variation(decoded)
         # logger.info(f" tvloss:{tvloss*self.beta:.4f}, L1loss:{loss_L1:.4f}")
@@ -355,10 +357,19 @@ class MeshEncoderDecoder(Module):
         paddingsize = 22500,
         encoder_layer = 6,
         alpha = 0.1,
-        
+        sageconv_kwargs: dict = dict(   #SAGEconv参数
+            normalize = True,
+            project = True
+        ),
+        sageconv_dropout = 0.,      #SAGEconv的dropout率
+        encoder_dims_through_depth: Tuple[int, ...] = (
+            64, 128, 256, 256, 576
+        ),       
+        n=4,
     ): #我草 这里面能调的参也太NM多了吧 这炼丹能练死人
         super().__init__()
         t.toc('  初始化开始',restart=True)
+        self.n = n
         self.alpha = alpha
         self.device = device
         self.paddingsize = paddingsize
@@ -382,71 +393,93 @@ class MeshEncoderDecoder(Module):
         self.emnoangle_embed = nn.Embedding(num_discrete_emnoangle, dim_emnoangle_embed) #jxt
         self.discretize_emangle = partial(discretize, num_discrete = num_discrete_emangle, continuous_range = coor_continuous_range) #jxt
         self.emangle_embed = nn.Embedding(num_discrete_emangle, dim_emangle_embed) #jxt 128 64
-
-        #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
-        #感觉还是要离散化一下，现在直接用mlp做嵌入学不到东西。2024年9月21日20:02:05 
-        self.discretize_emfreq = partial(discretize, num_discrete = num_discrete_emfreq, continuous_range = (0.,1.0)) #2024年5月11日15:28:15我草 是不是没必要离散，这个情况，是不是其实我的freq本身其实就已经离散的了，不用我再人为离散化一次？只是embedding的时候他映射到embedding空间之后，隐含的空间关系就能实现我“连续回归”的目的？而且280个点离散到128个离散值，本身就有问题吧你妈的
         self.emfreq_embed = nn.Embedding(num_discrete_emfreq, dim_emfreq_embed) #jxt
-        self.emfreq_embed1 = nn.Embedding(num_discrete_emfreq, int(self.paddingsize/(2**encoder_layer))) #jxt
-        self.emfreq_embed2 = nn.Embedding(num_discrete_emfreq, decoder_outdim*8*45*90) #jxt
 
-        #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
-
-
-        # self.enfc0 = nn.Linear(4,22500,device=device) #为什么我的embedding层都能有梯度学出来，linear就不能学呢
-        # self.enmlp0 = nn.Sequential(
-        #     nn.Linear(4, 4, bias=True,device=device),
-        #     nn.SiLU(),
-        #     nn.Linear(4, self.paddingsize, bias=True,device=device),
-        # )
-        # self.enmlp00 = nn.Sequential(
-        #     nn.Linear(1, 4, bias=True,device=device),
-        #     nn.SiLU(),
-        #     nn.Linear(4, self.paddingsize, bias=True,device=device),
-        # )
-        # self.enfc0.weight.data = self.enfc0.weight.data.to(torch.float64)
-        # self.enfc0.bias.data = self.enfc0.bias.data.to(torch.float64)
-
-        # initial dimension
-
-        # project into model dimension
         # self.project_in = nn.Linear(1057, dim_codebook)
         self.project_in2 = nn.Linear(1057, hidden_size)
 
-        # jxt transformer encoder
-        # self.transencoder = nn.TransformerEncoder(nn.TransformerEncoderLayer(d_model=hidden_size, nhead=8, dim_feedforward=256),num_layers=6).to(device)
-        #----------------------------------------------------jxt encoder----------------------------------------------------------
-        self.transformer_model = TransformerWithPooling(d_model=hidden_size, nhead=4, dim_feedforward=256, num_layers=encoder_layer, pool_size=2, activation='silu').to(device)
-        self.pe = PositionalEncoding(d_model=hidden_size).to(device) #这一行要不要是个问题
-
-        # self.conv1d1 = nn.Conv1d(576, 1, kernel_size=1, stride=1, dilation=1 ,padding=0).to(device)
-        # self.fc1d1 = nn.Sequential(
-        #         nn.Linear(int(self.paddingsize/(2**encoder_layer)), int(self.paddingsize/(2**encoder_layer))),
-        #         nn.SiLU(),
-        #         nn.Linear(int(self.paddingsize/(2**encoder_layer)), decoder_outdim*8*45*90),#388800
-        #         nn.LayerNorm(decoder_outdim*8*45*90)).to(device)
-        self.conv1d1 = nn.Conv1d(576, decoder_outdim*8, kernel_size=1, stride=1, dilation=1 ,padding=0).to(device) #[351,576]-[351,96]
-        self.fc1d1 = nn.Sequential(
-                nn.Linear(int(self.paddingsize/(2**encoder_layer)), int(self.paddingsize/(2**encoder_layer))),
-                nn.SiLU(),
-                nn.Linear(int(self.paddingsize/(2**encoder_layer)), 45*90),#4050
-                nn.LayerNorm(45*90)).to(device) #[351,96]-[45*90,96]
+        # 1D卷积降维，从576降到1
+        self.conv1d_dim_reduce = nn.Conv1d(in_channels=576, out_channels=1, kernel_size=1)
         
-        self.swinunet = SwinTransformerSys(embed_dim=decoder_outdim,window_size=9).to(device) #我给的是这个 其他都是自己算出来的
-        self.incident_angle_linear1 = nn.Linear(2, int(self.paddingsize/(2**encoder_layer)))
-        # self.sig1 = nn.Sigmoid()
-        # self.sig2 = nn.Sigmoid()
-        # self.incident_freq_linear1 = nn.Linear(1, int(self.paddingsize/(2**encoder_layer)))
-        # self.incident_freq_linear1 = nn.Sequential(
-        #         nn.Linear(1, 8),
-        #         nn.SiLU(),
-        #         nn.Linear(8,int(self.paddingsize/(2**encoder_layer)))).to(device)
-        self.incident_angle_linear2 = nn.Linear(2, decoder_outdim*8*45*90)
-        # # self.incident_freq_linear2 = nn.Linear(1, decoder_outdim*8*45*90)
-        # self.incident_freq_linear2 = nn.Sequential(
-        #         nn.Linear(1, 8),
-        #         nn.SiLU(),
-        #         nn.Linear(8,decoder_outdim*8*45*90)).to(device)
+        # 下采样部分
+        self.down_conv1 = nn.Conv2d(1, n, kernel_size=4, stride=2, padding=1)  # [150, 150] -> [75, 75]
+        self.down_conv2 = nn.Conv2d(n, n * 2, kernel_size=4, stride=2, padding=1)  # [75, 75] -> [37, 37]
+        self.down_conv3 = nn.Conv2d(n * 2, n * 4, kernel_size=4, stride=2, padding=1)  # [37, 37] -> [18, 18]
+        
+        # Bottleneck
+        self.bottleneck_conv = nn.Conv2d(n * 4, n * 8, kernel_size=3, padding=1)  # [18, 18] -> [18, 18]
+        
+        # 全连接层，映射到目标大小
+        self.fc_down_to_middle = nn.Linear(18 * 18 * n * 8, 45 * 90 * n)
+        
+        # 上采样部分
+        self.upconv1 = nn.ConvTranspose2d(n, n * 4, kernel_size=4, stride=2, padding=1)  # [45, 90] -> [90, 180]
+        self.bn1 = nn.BatchNorm2d(n * 4)
+        self.conv1_1 = nn.Conv2d(n * 4, n * 4, kernel_size=3, stride=1, padding=1)
+        self.bn1_1 = nn.BatchNorm2d(n * 4)
+        self.conv1_2 = nn.Conv2d(n * 4, n * 4, kernel_size=3, stride=1, padding=1)
+        self.bn1_2 = nn.BatchNorm2d(n * 4)
+        
+        self.upconv2 = nn.ConvTranspose2d(n * 4, n * 2, kernel_size=4, stride=2, padding=1)  # [90, 180] -> [180, 360]
+        self.bn2 = nn.BatchNorm2d(n * 2)
+        self.conv2_1 = nn.Conv2d(n * 2, n * 2, kernel_size=3, stride=1, padding=1)
+        self.bn2_1 = nn.BatchNorm2d(n * 2)
+        self.conv2_2 = nn.Conv2d(n * 2, n * 2, kernel_size=3, stride=1, padding=1)
+        self.bn2_2 = nn.BatchNorm2d(n * 2)
+        
+        self.upconv3 = nn.ConvTranspose2d(n * 2, n, kernel_size=4, stride=2, padding=1)  # [180, 360] -> [360, 720]
+        self.bn3 = nn.BatchNorm2d(n)
+        self.conv3_1 = nn.Conv2d(n, n, kernel_size=3, stride=1, padding=1)
+        self.bn3_1 = nn.BatchNorm2d(n)
+        self.conv3_2 = nn.Conv2d(n, n, kernel_size=3, stride=1, padding=1)
+        self.bn3_2 = nn.BatchNorm2d(n)
+        
+        # 最终 1x1 卷积
+        self.conv1x1 = nn.Conv2d(n, 1, kernel_size=1, stride=1, padding=0)
+
+        # self.incident_angle_linear1 = nn.Linear(2, 22500)
+        self.incident_angle_linear2 = nn.Linear(2, 45*90)
+        self.incident_angle_linear3 = nn.Linear(2, 90*180)
+        self.incident_angle_linear4 = nn.Linear(2, 180*360)
+        #--------------------------------频率专题-------------------------------------------------------------------
+        #感觉还是要离散化一下，现在直接用mlp做嵌入学不到东西。2024年9月21日20:02:05 
+        self.discretize_emfreq = partial(discretize, num_discrete = num_discrete_emfreq, continuous_range = (0.,1.0)) #2024年5月11日15:28:15我草 是不是没必要离散，这个情况，是不是其实我的freq本身其实就已经离散的了，不用我再人为离散化一次？只是embedding的时候他映射到embedding空间之后，隐含的空间关系就能实现我“连续回归”的目的？而且280个点离散到128个离散值，本身就有问题吧你妈的
+        # self.emfreq_embed1 = nn.Embedding(num_discrete_emfreq, 22500) #jxt
+        self.emfreq_embed2 = nn.Embedding(num_discrete_emfreq, 45*90) #jxt
+        self.emfreq_embed3 = nn.Embedding(num_discrete_emfreq, 90*180) #jxt
+        self.emfreq_embed4 = nn.Embedding(num_discrete_emfreq, 180*360) #jxt
+        # self.freqfan1 = FANLayer(1, int(self.paddingsize/(2**encoder_layer)), with_gate=True)
+        # self.freqfan2 = FANLayer(1, decoder_outdim*8*45*90, with_gate=True)
+
+
+
+
+        sageconv_kwargs = {**sageconv_kwargs }
+
+        init_encoder_dim, *encoder_dims_through_depth = encoder_dims_through_depth #64, 128, 256, 256, 576
+        curr_dim = init_encoder_dim
+
+        self.init_sage_conv = SAGEConv(hidden_size, init_encoder_dim, **sageconv_kwargs) #dim_codebook
+        # self.init_sage_conv.weight.data = self.init_sage_conv.weight.data.to(torch.float64)
+        # self.init_sage_conv.bias.data = self.init_sage_conv.bias.data.to(torch.float64)
+
+        self.init_encoder_act_and_norm = nn.Sequential(
+            nn.SiLU(),
+            nn.LayerNorm(init_encoder_dim)
+        )
+
+        self.encoders = ModuleList([])
+
+        for dim_layer in encoder_dims_through_depth:
+            sage_conv = SAGEConv(
+                curr_dim,
+                dim_layer,
+                **sageconv_kwargs
+            )
+
+            self.encoders.append(sage_conv) #这里把encoder创好了并贴上了sage
+            curr_dim = dim_layer
+
         t.toc('  初始化结束',restart=True)
 
 
@@ -456,6 +489,7 @@ class MeshEncoderDecoder(Module):
         *,
         vertices:         TensorType['b', 'nv', 3, float],
         faces:            TensorType['b', 'nf', 'nvf', int],
+        face_edges:       TensorType['b', 'e', 2, int],
         # face_mask,
         geoinfo,
         return_face_coordinates = False,
@@ -563,32 +597,58 @@ class MeshEncoderDecoder(Module):
         checksize(face_embed)
         # orig_face_embed_shape = face_embed.shape[:2]
 
-        '''
-        Transformer输入：   (seq_len, batch_size, C)    (L B C)
-        1DConv输入：        (batch_size, C, seq_len)
-        2DConv输入：        (batch_size, C, H, W)
-        Linear输入：        仅对最后一个维度从输入变成输出
-        '''
-        # face_embed=torch.randn(6, 22500, 576).to(device)
-        # discrete_face_coords, em_embed, in_em1 = 0,0,in_em.to(device) #居然和前处理也没关系。。。
+########################transformer##########################
+        # '''
+        # Transformer输入：   (seq_len, batch_size, C)    (L B C)
+        # 1DConv输入：        (batch_size, C, seq_len)
+        # 2DConv输入：        (batch_size, C, H, W)
+        # Linear输入：        仅对最后一个维度从输入变成输出
+        # '''
+        # # face_embed=torch.randn(6, 22500, 576).to(device)
+        # # discrete_face_coords, em_embed, in_em1 = 0,0,in_em.to(device) #居然和前处理也没关系。。。
 
-        face_embed = face_embed.reshape(-1,face_embed.shape[0],face_embed.shape[-1])#从(1,25000,576)变成(25000,1,576)
-        '''(L B C)'''
-        checksize(face_embed)
-        face_embed = self.pe(face_embed)
-        face_embed = self.transformer_model(face_embed)
-        face_embed = face_embed.reshape(-1,face_embed.shape[0],face_embed.shape[-1])#从(25000,1,576)变回(1,25000,576)
+        # face_embed = face_embed.reshape(-1,face_embed.shape[0],face_embed.shape[-1])#从(1,25000,576)变成(25000,1,576)
+        # '''(L B C)'''
+        # checksize(face_embed)
+        # face_embed = self.pe(face_embed)
+        # face_embed = self.transformer_model(face_embed)
+        # face_embed = face_embed.reshape(-1,face_embed.shape[0],face_embed.shape[-1])#从(25000,1,576)变回(1,25000,576)
 
-        # shape = (*orig_face_embed_shape, face_embed.shape[-1])# (1, 33564, 576) = (*torch.Size([1, 33564]), 576)
-        # face_embed = face_embed.new_zeros(shape).masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed) #多了一层[]而已
+        # # shape = (*orig_face_embed_shape, face_embed.shape[-1])# (1, 33564, 576) = (*torch.Size([1, 33564]), 576)
+        # # face_embed = face_embed.new_zeros(shape).masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed) #多了一层[]而已
+        # # print(f'Encoder Step用时：{(time.time()-ticc):.4f}s')
+        # # ticc = time.time()        
+        # face_embed = face_embed.reshape(face_embed.shape[1],face_embed.shape[0],-1)
+        # # print(f'\nEncoder用时：{(time.time()-timeen):.4f}s')
+        # if not return_face_coordinates:
+        #     return face_embed
+        # return face_embed, discrete_face_coords, in_em1, lg_emfreq#, in_em_angle_vec
+########################transformer##########################
+        face_edges = face_edges.reshape(2, -1) #从torch.Size([10, 63936, 2])到torch.Size([2, 639360])
+        orig_face_embed_shape = face_embed.shape[:2]
+        face_embed = face_embed.reshape(-1, face_embed.shape[-1]) #从torch.Size([10, 18000, 576])到torch.Size([180000, 576])
+        # print(f'Encoder Step7 感觉可删用时：{(time.time()-ticc):.4f}s')
+        # ticc = time.time()
+#----------------------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------face SAGEConv-------------------------------------------------------------------------
+#----------------------------------------------------------------------------------------------------------------------------------
+        # initial sage conv followed by activation and norm 这里就开始用SAGEconv了！
+        face_embed = self.init_sage_conv(face_embed, face_edges) #嵌入从192维变64维。这行把face_embed塞进了self.init_sage_conv = SAGEConv(dim_codebook=192, init_encoder_dim=64, **sageconv_kwargs)在前文实例化了的SAGEConv。做完之后，就是特征卷积聚合，face_embed从192维变成了64维，方便塞进encoder的ini层中。
+        face_embed = self.init_encoder_act_and_norm(face_embed) #nn.Sequential是NN层封装容器，封装了两个模块：nn.SiLU()和nn.LayerNorm(init_encoder_dim)。当一个输入传递给self.init_encoder_act_and_norm时，输入首先通过nn.SiLU()（一个激活函数），然后输出被传递到nn.LayerNorm(init_encoder_dim)（一个layer归一化操作）。不会改变矩阵大小，只会改变矩阵值
+
+        for conv in self.encoders:
+            face_embed = conv(face_embed, face_edges) #这中前几个conv里是不是没有ReLU+BatchNorm？和论文里不一样？卷完成了torch.Size([33564, 576])
+        # print(f'Encoder Step图卷积用时：{(time.time()-ticc):.4f}s')
+        # ticc = time.time()
+
+        shape = (*orig_face_embed_shape, face_embed.shape[-1])# (1, 33564, 576) = (*torch.Size([1, 33564]), 576)
+        face_embed = face_embed.reshape(shape)
         # print(f'Encoder Step用时：{(time.time()-ticc):.4f}s')
-        # ticc = time.time()        
-        face_embed = face_embed.reshape(face_embed.shape[1],face_embed.shape[0],-1)
-        # print(f'\nEncoder用时：{(time.time()-timeen):.4f}s')
+        # ticc = time.time()
         if not return_face_coordinates:
             return face_embed
-
         return face_embed, discrete_face_coords, in_em1, lg_emfreq#, in_em_angle_vec
+    
 
     @beartype
     def decode( #decoder输入：torchsize(1,33564,576) 长度33564待定，维度576固定
@@ -596,52 +656,103 @@ class MeshEncoderDecoder(Module):
         x, #torch.Size([6, 576, 281])
         in_em1,
         device,
-        lg_emfreq
-    ):
+        lg_emfreq,
+        n,
+    ):#前面的encoder的GNN输出和这里接不上了，要重新对齐一下设计一下。是否需要直接在这里接一个Unet？是个(batch,22500,576)的大变量诶，先把维度归一，再把22500卷下去再卷上来？
+
+        #-------------------------------------频率专题-------------------------------------------------------------------
         in_angle = torch.stack([in_em1[1]/180, in_em1[2]/360]).t().float().to(device).unsqueeze(1)#我草 我直接在这儿除不就好了 我是呆呆比 还写了个incidentangle_norm()
-
-        #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
         # in_freq = in_em1[3].t().float().unsqueeze(1).unsqueeze(1).to(device) #这里是又得到了，然后用的mlp做嵌入 但是应该用离散embed做嵌入，能不能把之前的拿过来，得到的是什么样子的变量
-        # '''tensor([[[0.7492]],  [[0.8482]],  [[0.9227]],   [[0.9204]],   [[0.9010]],   [[0.7291]]], device='cuda:0')'''
-        '''
-        Transformer输入：   (seq_len, batch_size, C)    (L B C)
-        1DConv输入：        (batch_size, C, seq_len)
-        2DConv输入：        (batch_size, C, H, W)
-        Linear输入：        仅对最后一个维度从输入变成输出
-        '''
-        condangle1 = self.incident_angle_linear1(in_angle)
+        '''tensor([[[0.7492]],  [[0.8482]],  [[0.9227]],   [[0.9204]],   [[0.9010]],   [[0.7291]]], device='cuda:0')'''
+        # condangle1 = self.incident_angle_linear1(in_angle)
         condangle2 = self.incident_angle_linear2(in_angle)
-        # condangle1 = self.sig1(self.incident_angle_linear1(in_angle)) #为了避免值太大干扰主变量？
-        # condangle2 = self.sig2(self.incident_angle_linear2(in_angle))
-        # condfreq1 = self.incident_freq_linear1(in_freq)  #缩放因子，加强频率的影响，因为现在看来频率没啥影响，网络还没学到根据频率而变..不大行 发现是应该要归一化
-        # condfreq2 = self.incident_freq_linear2(in_freq)
-
+        condangle3 = self.incident_angle_linear3(in_angle)
+        condangle4 = self.incident_angle_linear4(in_angle)
         discretized_freq = self.discretize_emfreq(lg_emfreq) 
-        condfreq1 = self.emfreq_embed1(discretized_freq).unsqueeze(1)
+        # condfreq1 = self.emfreq_embed1(discretized_freq).unsqueeze(1)
         condfreq2 = self.emfreq_embed2(discretized_freq).unsqueeze(1)
-        #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
+        condfreq3 = self.emfreq_embed3(discretized_freq).unsqueeze(1)
+        condfreq4 = self.emfreq_embed4(discretized_freq).unsqueeze(1)
+        # condfreqfan1 = self.freqfan1(lg_emfreq.unsqueeze(1).float()).unsqueeze(1)
+        # condfreqfan2 = self.freqfan2(lg_emfreq.unsqueeze(1).float()).unsqueeze(1)
+        #-------------------------------------频率专题-------------------------------------------------------------------
+
+
+        x = x.permute(0, 2, 1)  # 重排为 (batch, dim, length)
+        x = self.conv1d_dim_reduce(x)  # (batch, 1, 22500)
+        x = x.permute(0, 2, 1)  # 重排回 (batch, length, dim)
+        # x = x + condangle1 + condfreq1 # (batch, 22500, 1)
+        x = x.view(x.size(0), 1, 150, 150)  # 重塑为 (batch, 1, 150, 150)
         
-        #---------------conv1d+fc bottleneck---------------
-        #torch.Size([281, 10, 576]) 18000就是281
-        x = x.reshape(x.shape[1], x.shape[2], -1)  # 1DConv输入：Reshape to (batch_size, input_channel, seq_len) 
-        #torch.Size([10, 576, 281])
-        # checksize(x)
-        x = self.conv1d1(x) #571变1 #[576,351]-[96,351]
-        # checksize(x)
-        x = x + condangle1.repeat(1, x.shape[1], 1) #torch.Size([6, 1, 281]) #torch.Size([6, 96, 281])
-        x = x + condfreq1.repeat(1, x.shape[1], 1)
+        # 下采样部分
+        skip1 = self.down_conv1(x)  # (batch, n, 75, 75)
+        skip2 = self.down_conv2(skip1)  # (batch, n*2, 37, 37)
+        skip3 = self.down_conv3(skip2)  # (batch, n*4, 18, 18)
+        
+        # Bottleneck
+        x = self.bottleneck_conv(skip3)  # (batch, n*8, 18, 18)
+        
+        # 展平并通过全连接层，映射到中间变量大小
+        x_flat = x.view(x.size(0), -1)  # 展平为 (batch, 18*18*n*8)
+        x_middle = self.fc_down_to_middle(x_flat)  # 映射到 (batch, 45*90*n)
+        x_middle = x_middle.view(x.size(0), n, 45, 90)  # 调整形状为 (batch, n, 45, 90)
+        
+        x = x_middle + condangle2.reshape(x.size(0),1,45,90).repeat(1,n,1,1) + condfreq2.reshape(x.size(0),1,45,90).repeat(1,n,1,1)
 
-        x = self.fc1d1(x) #[96,351]-[96,45*90]
-        # checksize(x)
-        x = x + condangle2.reshape(-1,x.shape[1],x.shape[2])
-        x = x + condfreq2.reshape(-1,x.shape[1],x.shape[2]) #试图放大freq的影响 要是还不够，就在decoder Transformer里每一层都加上freq因素，就像原始的带skip connection的Unet一样
+        # # 上采样部分
+        # # 跳跃连接 1：skip3 -> 上采样后大小对齐
+        # skip3_flat = skip3.view(skip3.size(0), -1)  # 展平 skip3
+        # skip3_proj = self.fc_skip3(skip3_flat).view(x_middle.size())  # 映射到 (batch, n, 45, 90)
+        # x = x_middle + skip3_proj  # 跳跃连接
+        
+        x = self.upconv1(x)  # (batch, n*4, 90, 180)
+        x = self.bn1(x)
+        x = F.relu(x)
+        x = self.conv1_1(x)
+        x = self.bn1_1(x)
+        x = F.relu(x)
+        x = self.conv1_2(x)
+        x = self.bn1_2(x)
+        x = F.relu(x)
+        x = x + condangle3.reshape(x.size(0),1,90,180).repeat(1,4*n,1,1) + condfreq3.reshape(x.size(0),1,90,180).repeat(1,4*n,1,1)
+    
 
-        #-------------SwinTransformer Decoder--------------
-        x = x.reshape(x.shape[0],45*90,-1)
-        # checksize(x)
-        x = self.swinunet(x,discretized_freq)
-        # checksize(x)
-        return x.squeeze(dim=1)
+        
+        # # 跳跃连接 2：skip2 -> 上采样后大小对齐
+        # skip2_flat = skip2.view(skip2.size(0), -1)  # 展平 skip2
+        # skip2_proj = self.fc_skip2(skip2_flat).view(x.size(0), n * 4, 90, 180)  # 映射到 (batch, n*4, 90, 180)
+        # x = x + skip2_proj  # 跳跃连接
+        
+        x = self.upconv2(x)  # (batch, n*2, 180, 360)
+        x = self.bn2(x)
+        x = F.relu(x)
+        x = self.conv2_1(x)
+        x = self.bn2_1(x)
+        x = F.relu(x)
+        x = self.conv2_2(x)
+        x = self.bn2_2(x)
+        x = F.relu(x)
+        x = x + condangle4.reshape(x.size(0),1,180,360).repeat(1,2*n,1,1) + condfreq4.reshape(x.size(0),1,180,360).repeat(1,2*n,1,1)
+        
+        # # 跳跃连接 3：skip1 -> 上采样后大小对齐
+        # skip1_flat = skip1.view(skip1.size(0), -1)  # 展平 skip1
+        # skip1_proj = self.fc_skip1(skip1_flat).view(x.size(0), n * 2, 180, 360)  # 映射到 (batch, n*2, 180, 360)
+        # x = x + skip1_proj  # 跳跃连接
+        
+        x = self.upconv3(x)  # (batch, 1, 360, 720)
+        x = self.bn3(x)
+        x = F.relu(x)
+        x = self.conv3_1(x)
+        x = self.bn3_1(x)
+        x = F.relu(x)
+        x = self.conv3_2(x)
+        x = self.bn3_2(x)
+        x = F.relu(x)
+        
+        # 最终 1x1 卷积
+        x = self.conv1x1(x)
+        
+        return x.squeeze(1).squeeze(1)
 
     @beartype
     def forward(
@@ -649,6 +760,7 @@ class MeshEncoderDecoder(Module):
         *,
         vertices:       TensorType['b', 'nv', 3, float],
         faces:          TensorType['b', 'nf', 'nvf', int],
+        face_edges:     Optional[TensorType['b', 'e', 2, int]] = None,
         geoinfo,
         in_em,
         GT,
@@ -665,6 +777,7 @@ class MeshEncoderDecoder(Module):
         encoded, __, in_em1, lg_emfreq = self.encode( #从这儿进encode里 返回的encoded就是那一个跑了一溜SAGEConv得到的face_embed.size = torch.Size([1, 33564, 576]), face_coordinates.shape = torch.Size([1, 33564, 9])是一个面3个点9个坐标点？为啥一个面是tensor([35, 60, 55, 35, 60, 55, 35, 60, 55]) 我知道了因为128^3离散化了
             vertices = vertices, #顶点
             faces = faces, #面
+            face_edges = face_edges, #图论边
             geoinfo = geoinfo,
             return_face_coordinates = True,
             in_em = in_em,
@@ -681,7 +794,8 @@ class MeshEncoderDecoder(Module):
             encoded, #quantized.shape = torch.Size([1, 33564, 576])
             in_em1,
             device,
-            lg_emfreq
+            lg_emfreq,
+            n=self.n
         )
         # t.toc('  decoder',restart=True)
         # print('decoder:')
