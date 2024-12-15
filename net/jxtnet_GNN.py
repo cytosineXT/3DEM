@@ -400,13 +400,20 @@ class MeshEncoderDecoder(Module):
         # self.project_in = nn.Linear(1057, dim_codebook)
         self.project_in2 = nn.Linear(1057, hidden_size)
 
-        self.conv1d1 = nn.Conv1d(576, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
-        # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        # self.conv1d1 = nn.Conv1d(576, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        # # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        # self.fc1d1 = nn.Sequential(
+        #         nn.Linear(int(2250), int(2250)),
+        #         nn.SiLU(),
+        #         nn.Linear(int(2250), middim*45*90),#388800
+        #         nn.LayerNorm(middim*45*90)).to(device)
+        self.conv1d1 = nn.Conv1d(576, middim, kernel_size=10, stride=10, dilation=1 ,padding=0).to(device) #[351,576]-[351,96]
         self.fc1d1 = nn.Sequential(
-                nn.Linear(int(2250), int(2250)),
+                nn.Linear(int(self.paddingsize/10), int(self.paddingsize/10)),
                 nn.SiLU(),
-                nn.Linear(int(2250), middim*45*90),#388800
-                nn.LayerNorm(middim*45*90)).to(device)
+                nn.Linear(int(self.paddingsize/10), 45*90),#388800
+                nn.LayerNorm(45*90)).to(device)
+        
         # self.kan1 = KAN([2250,64,middim*45*90],device=device)
         # Decoder3
         self.upconv1 = nn.ConvTranspose2d(middim, int(middim/2), kernel_size=2, stride=2)
@@ -679,7 +686,7 @@ class MeshEncoderDecoder(Module):
         # ------------------------1D Conv+FC-----------------------------
         x = x.permute(0, 2, 1)  # 重排为 (batch, dim, length)
         x = self.conv1d1(x)
-        x = x.permute(0, 2, 1)  # 重排为 (batch, length, dim)
+        # x = x.permute(0, 2, 1)  # 重排为 (batch, length, dim)
 
         x = self.fc1d1(x.squeeze(2))
 

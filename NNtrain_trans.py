@@ -21,6 +21,18 @@ from NNvalfast import  plot2DRCS, valmain#, plotRCS2
 from pytictoc import TicToc
 t = TicToc()
 t.tic()
+import random
+import numpy as np
+
+def setup_seed(seed):
+     torch.manual_seed(seed)
+     torch.cuda.manual_seed_all(seed)
+    #  torch.backends.cudnn.benchmark = False  # 关闭优化搜索
+     torch.backends.cudnn.deterministic = True
+     np.random.seed(seed)
+     random.seed(seed)
+# 设置随机数种子
+setup_seed(77)
 
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 tic0 = time.time()
@@ -38,11 +50,7 @@ epoch = 60
 use_preweight = True
 use_preweight = False
 draw = False
-lgrcs = True
-lgrcs = False
-shuffle = True
-# shuffle = False
-multigpu = False 
+draw = True
 
 accumulation_step = 8
 threshold = 20
@@ -56,29 +64,29 @@ psnrs = []
 ssims = []
 mses = []
 corrupted_files = []
+lgrcs = True
+lgrcs = False
+shuffle = True
+# shuffle = False
+multigpu = False 
 
-rcsdir = r'/home/jiangxiaotian/datasets/mul2347_mie_pretrain' #T7920 Liang
-# rcsdir = r'/home/jiangxiaotian/datasets/mul2347_mie_train' #T7920 Liang
-# rcsdir = r'/home/jiangxiaotian/datasets/mulbb7c_mie_pretrain' #T7920 Liang
-# rcsdir = r'/home/jiangxiaotian/datasets/mul2_mie_pretrain' #T7920 Liang
-# rcsdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
-# rcsdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 Liang
-# rcsdir = r'/home/jiangxiaotian/datasets/mul2347_train' #T7920 Liang
-# valdir = r'/home/jiangxiaotian/datasets/mul2347_6val'
-# valdir = r'/home/jiangxiaotian/datasets/mul2347_mie_6smallval'
-# valdir = r'/home/jiangxiaotian/datasets/mulbb7c_mie_val'
-# valdir = r'/home/jiangxiaotian/datasets/mul2347_mie_6val'
-# valdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
-valdir = r'/home/jiangxiaotian/datasets/mul2347_6smallval'
+# rcsdir = r'/home/ljm/workspace/datasets/mul2_mie_pretrain' #T7920 Liang
+# rcsdir = r'/home/ljm/workspace/datasets/mulb979_mie_pretrain' #T7920 Liang
+rcsdir = r'/home/ljm/workspace/datasets/mulbb7c_mie_pretrain' #T7920 Liang
+# rcsdir = r'/home/ljm/workspace/datasets/traintest' #T7920 Liang
+# valdir = r'/home/ljm/workspace/datasets/mul2_mie_val'
+# valdir = r'/home/ljm/workspace/datasets/mulb979_mie_val'
+valdir = r'/home/ljm/workspace/datasets/mulbb7c_mie_val'
+# valdir = r'/home/ljm/workspace/datasets/traintest'
 # pretrainweight = r'./output/train/1103_transconv_pretrain_0.0alpha/last.pt' #T7920
-pretrainweight = r'./output/train/1122_transconv_pretrain_bb7c_0.0alpha2/last.pt' #T7920
+pretrainweight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1129_TransConv_pretrain_b7fd_nofilter/last.pt' #T7920
 
 alpha = 0.0
 learning_rate = 0.001  # 初始学习率
 lr_time = epoch # 10
 # lr_time = 80 # 10
 cudadevice = 'cuda:1'
-batchsize = 4 #TransUpconv能10 PureTrans只能4
+# batchsize = 4 #TransUpconv能10 PureTrans只能4
 batchsize = 10
 # batchsize = 4
 encoder_layer = 6
@@ -86,7 +94,7 @@ decoder_outdim = 12 # 3S 6M 12L
 paddingsize = 18000
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /f'{date}_transconv_pretrain_mul2347_{alpha}alpha'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /f'{date}_TransConv_pretrain_bb7c_77seed_maxloss01_'), exist_ok=False))##
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 lossessavedir = os.path.join(save_dir,'loss.png')
@@ -180,7 +188,7 @@ for i in range(epoch):
         # tic=toc(tic)
         
         # t.toc('循环内准备时间',restart=True)
-        loss, outrcs, psnr_mean, _, ssim_mean, _, mse_mean = autoencoder( #这里使用网络，是进去跑了forward 
+        loss, outrcs, psnr_mean, _, ssim_mean, _, mse_mean,_ = autoencoder( #这里使用网络，是进去跑了forward 
             vertices = planesur_verts,
             faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
             geoinfo = geoinfo, #[area, volume, scale]
@@ -242,6 +250,7 @@ for i in range(epoch):
         # print('--loss到本轮batch结束时长：')
         # tic = toc(tic)
         # t.toc('循环尾巴时间',restart=True)
+    logger.info(save_dir)
 
     p = psnr(drawrcs.to(device), drawGT.to(device))
     s = ssim(drawrcs.to(device), drawGT.to(device))

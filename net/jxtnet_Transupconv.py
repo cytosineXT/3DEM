@@ -23,6 +23,7 @@ from pytictoc import TicToc
 import trimesh
 import glob
 import os
+from net.FANLayer import FANLayer
 
 t = TicToc()
 t.tic()
@@ -53,22 +54,45 @@ def total_variation(images):
         raise ValueError("'images' must be either 3 or 4-dimensional.")
     return tot_var
 
-class TVL1Loss(nn.Module):
-    def __init__(self, beta=1.0):
+# class TVL1Loss(nn.Module):
+#     def __init__(self, beta=1.0):
+#         super(TVL1Loss, self).__init__()
+#         # self.alpha = alpha
+#         self.beta = beta
+
+#     def forward(self, decoded, GT):
+#         # Calculate the MSE loss
+#         L1_loss = nn.L1Loss(reduction='mean')
+#         # L1_loss = nn.MSELoss(reduction='mean')
+#         # L1_loss = nn.L1Loss(reduction='sum')
+#         loss_L1 = L1_loss(decoded, GT)
+#         tvloss= total_variation(decoded)
+#         # logger.info(f" tvloss:{tvloss*self.beta:.4f}, L1loss:{loss_L1:.4f}")
+#         total_loss = loss_L1 + tvloss * self.beta
+#         # print(f'l1loss:{loss_L1},tvloss:{tvloss},totalloss:{total_loss}')
+#         return total_loss
+#         # return loss_L1
+class TVL1Loss(nn.Module): # maxloss!
+    def __init__(self, beta=1.0, gama=1.0):
         super(TVL1Loss, self).__init__()
         # self.alpha = alpha
         self.beta = beta
+        self.gama = gama
 
     def forward(self, decoded, GT):
         # Calculate the MSE loss
         L1_loss = nn.L1Loss(reduction='mean')
+        # L1_loss = nn.MSELoss(reduction='mean')
         # L1_loss = nn.L1Loss(reduction='sum')
         loss_L1 = L1_loss(decoded, GT)
-        tvloss= total_variation(decoded)
+        tvloss = total_variation(decoded)
+        maxloss = torch.mean(torch.abs(torch.amax(decoded, dim=(1, 2)) - torch.amax(GT, dim=(1, 2))))
         # logger.info(f" tvloss:{tvloss*self.beta:.4f}, L1loss:{loss_L1:.4f}")
-        total_loss = loss_L1 + tvloss * self.beta
+        # print(f"L1={loss_L1:.4f},TV={tvloss:.4f},max={maxloss:.4f}")
+        total_loss = loss_L1 + tvloss * self.beta + maxloss * self.gama
         # print(f'l1loss:{loss_L1},tvloss:{tvloss},totalloss:{total_loss}')
         return total_loss
+        # return loss_L1
 
 # Convert spherical coordinates to cartesian
 def spherical_to_cartesian(theta, phi, device="cpu"):
@@ -387,7 +411,7 @@ class MeshEncoderDecoder(Module):
         #感觉还是要离散化一下，现在直接用mlp做嵌入学不到东西。2024年9月21日20:02:05 
         self.discretize_emfreq = partial(discretize, num_discrete = num_discrete_emfreq, continuous_range = (0.,1.0)) #2024年5月11日15:28:15我草 是不是没必要离散，这个情况，是不是其实我的freq本身其实就已经离散的了，不用我再人为离散化一次？只是embedding的时候他映射到embedding空间之后，隐含的空间关系就能实现我“连续回归”的目的？而且280个点离散到128个离散值，本身就有问题吧你妈的
         self.emfreq_embed = nn.Embedding(num_discrete_emfreq, dim_emfreq_embed) #jxt
-        self.emfreq_embed1 = nn.Embedding(num_discrete_emfreq, int(self.paddingsize/(2**encoder_layer))) #jxt
+        self.emfreq_embed1 = nn.Embedding(num_discrete_emfreq, 96*int(self.paddingsize/(2**encoder_layer))) #jxt
         self.emfreq_embed2 = nn.Embedding(num_discrete_emfreq, decoder_outdim*8*45*90) #jxt
 
         #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
@@ -459,16 +483,18 @@ class MeshEncoderDecoder(Module):
 
 
         # self.swinunet = SwinTransformerSys(embed_dim=decoder_outdim,window_size=9).to(device) #我给的是这个 其他都是自己算出来的
-        self.incident_angle_linear1 = nn.Linear(2, int(self.paddingsize/(2**encoder_layer)))
+        self.incident_angle_linear1 = nn.Linear(2, 96*int(self.paddingsize/(2**encoder_layer)))
         # self.sig1 = nn.Sigmoid()
         # self.sig2 = nn.Sigmoid()
-        # self.incident_freq_linear1 = nn.Linear(1, int(self.paddingsize/(2**encoder_layer)))
+        self.incident_freq_linear1 = nn.Linear(1, 96*int(self.paddingsize/(2**encoder_layer)))
         # self.incident_freq_linear1 = nn.Sequential(
         #         nn.Linear(1, 8),
         #         nn.SiLU(),
         #         nn.Linear(8,int(self.paddingsize/(2**encoder_layer)))).to(device)
         self.incident_angle_linear2 = nn.Linear(2, decoder_outdim*8*45*90)
-        # # self.incident_freq_linear2 = nn.Linear(1, decoder_outdim*8*45*90)
+        self.incident_freq_linear2 = nn.Linear(1, decoder_outdim*8*45*90)
+        self.freqfan1 = FANLayer(1, int(self.paddingsize/(2**encoder_layer))*96, with_gate=True)
+        self.freqfan2 = FANLayer(1, decoder_outdim*8*45*90, with_gate=True)
         # self.incident_freq_linear2 = nn.Sequential(
         #         nn.Linear(1, 8),
         #         nn.SiLU(),
@@ -630,16 +656,18 @@ class MeshEncoderDecoder(Module):
         # in_freq = in_em1[3].t().float().unsqueeze(1).unsqueeze(1).to(device) #这里是又得到了，然后用的mlp做嵌入 但是应该用离散embed做嵌入，能不能把之前的拿过来，得到的是什么样子的变量
         '''tensor([[[0.7492]],  [[0.8482]],  [[0.9227]],   [[0.9204]],   [[0.9010]],   [[0.7291]]], device='cuda:0')'''
 
-        condangle1 = self.incident_angle_linear1(in_angle)
-        condangle2 = self.incident_angle_linear2(in_angle)
+        condangle1 = self.incident_angle_linear1(in_angle).reshape(x.shape[1],96,-1)
+        condangle2 = self.incident_angle_linear2(in_angle).reshape(x.shape[1],96,-1)
         # condangle1 = self.sig1(self.incident_angle_linear1(in_angle)) #为了避免值太大干扰主变量？
         # condangle2 = self.sig2(self.incident_angle_linear2(in_angle))
-        # condfreq1 = self.incident_freq_linear1(in_freq)  #缩放因子，加强频率的影响，因为现在看来频率没啥影响，网络还没学到根据频率而变..不大行 发现是应该要归一化
-        # condfreq2 = self.incident_freq_linear2(in_freq)
-
+        # condfreq1 = self.incident_freq_linear1(lg_emfreq.unsqueeze(1).float()).reshape(x.shape[1],96,-1)  #缩放因子，加强频率的影响，因为现在看来频率没啥影响，网络还没学到根据频率而变..不大行 发现是应该要归一化
+        # condfreq2 = self.incident_freq_linear2(lg_emfreq.unsqueeze(1).float()).reshape(x.shape[1],96,-1)
+        # condfreqfan1 = self.freqfan1(lg_emfreq.unsqueeze(1).float()).unsqueeze(1).reshape(x.shape[1],96,-1)
+        # condfreqfan2 = self.freqfan2(lg_emfreq.unsqueeze(1).float()).unsqueeze(1).reshape(x.shape[1],96,-1)
+        
         discretized_freq = self.discretize_emfreq(lg_emfreq) 
-        condfreq1 = self.emfreq_embed1(discretized_freq).unsqueeze(1)
-        condfreq2 = self.emfreq_embed2(discretized_freq).unsqueeze(1)
+        condfreq1 = self.emfreq_embed1(discretized_freq).reshape(x.shape[1],96,-1)
+        condfreq2 = self.emfreq_embed2(discretized_freq).reshape(x.shape[1],96,-1)
         #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
         
         #---------------conv1d+fc bottleneck---------------
@@ -647,13 +675,19 @@ class MeshEncoderDecoder(Module):
         checksize(x)
         x = self.conv1d1(x) #571变1
         checksize(x)
-        x = x + condangle1.repeat(1, x.shape[1], 1) #torch.Size([6, 1, 281]) #torch.Size([6, 96, 281])
-        x = x + condfreq1.repeat(1, x.shape[1], 1)
+        x = x + condangle1 #torch.Size([6, 1, 281]) #torch.Size([6, 96, 281])
+        x = x + condfreq1
+        # x = x + condfreq1.repeat(1, x.shape[1], 1)
+        # x = x + condfreq1.unsqueeze(1).repeat(1, x.shape[1], 1)
+        # x = x + condfreqfan1
 
         x = self.fc1d1(x) #[96,351]-[96,45*90]
         # checksize(x)
-        x = x + condangle2.reshape(-1,x.shape[1],x.shape[2])
-        x = x + condfreq2.reshape(-1,x.shape[1],x.shape[2])
+        x = x + condangle2
+        x = x + condfreq2
+        # x = x + condfreq2.reshape(-1,x.shape[1],x.shape[2])
+        # x = x + condfreq2.unsqueeze(1).reshape(-1,x.shape[1],x.shape[2])
+        # x = x + condfreqfan2
 
         #-------------SwinTransformer Decoder--------------
         # x = x.reshape(x.shape[0],45*90,-1)
@@ -667,34 +701,34 @@ class MeshEncoderDecoder(Module):
         # ------------------------2D upConv------------------------------
         x = self.upconv1(x)
         x = self.bn1(x)
-        x = F.relu(x)
+        x = F.silu(x)
         x = self.conv1_1(x)
         x = self.bn1_1(x)
-        x = F.relu(x)
+        x = F.silu(x)
         x = self.conv1_2(x)
         x = self.bn1_2(x)
-        x = F.relu(x)
+        x = F.silu(x)
         # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
 
         x = self.upconv2(x)
         x = self.bn2(x)
-        x = F.relu(x)
+        x = F.silu(x)
         x = self.conv2_1(x)
         x = self.bn2_1(x)
-        x = F.relu(x)
+        x = F.silu(x)
         x = self.conv2_2(x)
         x = self.bn2_2(x)
-        x = F.relu(x)
+        x = F.silu(x)
         # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
 
         x = self.upconv3(x)
         x = self.bn3(x)
         x = self.conv3_1(x)
         x = self.bn3_1(x)
-        x = F.relu(x)
+        x = F.silu(x)
         x = self.conv3_2(x)
         x = self.bn3_2(x)
-        x = F.relu(x)
+        x = F.silu(x)
 
         x = self.conv1x1(x)
         # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
@@ -753,15 +787,15 @@ class MeshEncoderDecoder(Module):
         # tic = toc(tic) #耗时0.0109s
 #------------------------------------------------------------------出Decoder了，后面都是算loss等后处理---------------------------------------------------------------------
         #平滑后处理：中值滤波+高斯滤波+修改后的smoothloss
-        decoded = decoded.unsqueeze(1)  # 添加 channel 维度
-        decoded = median_filter2d(decoded, kernel_size=5)# 应用中值滤波
+        # decoded = decoded.unsqueeze(1)  # 添加 channel 维度
         # decoded = median_filter2d(decoded, kernel_size=5)# 应用中值滤波
-        # print('中值滤波')
-        # tic = toc(tic)
-        decoded = gaussian_filter2d(decoded, kernel_size=5, sigma=4, device=device)#两个都用 这个效果好
-        decoded = decoded.squeeze(1)
-        # print('高斯滤波:')
-        # tic = toc(tic)
+        # # decoded = median_filter2d(decoded, kernel_size=5)# 应用中值滤波
+        # # print('中值滤波')
+        # # tic = toc(tic)
+        # decoded = gaussian_filter2d(decoded, kernel_size=5, sigma=4, device=device)#两个都用 这个效果好
+        # decoded = decoded.squeeze(1)
+        # # print('高斯滤波:')
+        # # tic = toc(tic)
 
         if GT == None:
             # tic = toc(tic)
@@ -777,7 +811,7 @@ class MeshEncoderDecoder(Module):
                 # logger.info(f'再变回去的GT:{torch.pow(10, GT)[0]}')
                 # GT = torch.pow(10, GT) #反变换在这里
             #------------------------------------------------------------------------
-            TVL1loss = TVL1Loss(beta=1.0) #我草 发现一个错误  pixel_dif1 = images[1:, :, :] - images[:-1, :, :] 但是GT.shape = torch.Size([1, 360, 720])，第一项是batchsize。。。
+            TVL1loss = TVL1Loss(beta=1.0,gama=0.1) #我草 发现一个错误  pixel_dif1 = images[1:, :, :] - images[:-1, :, :] 但是GT.shape = torch.Size([1, 360, 720])，第一项是batchsize。。。
             loss = TVL1loss(decoded,GT)/(GT.shape[0]) #平均了batch的loss
             # print('TVL1loss:')
             # tic = toc(tic)
@@ -805,9 +839,13 @@ class MeshEncoderDecoder(Module):
             # mseloss = nn.MSELoss(reduction='mean')
             # with torch.no_grad():
                 mean_mse = ((decoded-GT) ** 2).sum() / GT.numel()
+
+                gt_variance = torch.var(GT)
+                mean_nmse = mean_mse / gt_variance
+
             # logger.info(f"PSNR: {psnr_list} , Mean PSNR: {mean_psnr:.2f}, SSIM: {ssim_list}, Mean SSIM: {mean_ssim:.4f}")
             # print('mean_mse:')
             # tic = toc(tic) #耗时2.0270s
             # t.toc('  后处理',restart=True)
             # return loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse
-            return total_loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse
+            return total_loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse, mean_nmse

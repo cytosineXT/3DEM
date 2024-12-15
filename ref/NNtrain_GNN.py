@@ -57,26 +57,26 @@ ssims = []
 mses = []
 corrupted_files = []
 
-# rcsdir = r'/home/jiangxiaotian/datasets/mul2347_mie_pretrain' #T7920 Liang
+rcsdir = r'/home/ljm/workspace/datasets/mulbb7c_mie_pretrain' #T7920 Liang
 # rcsdir = r'/home/jiangxiaotian/datasets/mul2347_mie_train' #T7920 Liang
-rcsdir = r'/home/jiangxiaotian/datasets/mulbb7c_mie_pretrain' #T7920 Liang
+# rcsdir = r'/home/jiangxiaotian/datasets/mulbb7c_mie_pretrain' #T7920 Liang
 # rcsdir = r'/home/jiangxiaotian/datasets/mul2_mie_pretrain' #T7920 Liang
-# rcsdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
+# rcsdir = r'/home/ljm/workspace/datasets/traintest' #T7920 Liang
 # rcsdir = r'/home/jiangxiaotian/datasets/mul2347_pretrain' #T7920 Liang
 # rcsdir = r'/home/jiangxiaotian/datasets/mul2347_train' #T7920 Liang
 # valdir = r'/home/jiangxiaotian/datasets/mul2347_6val'
 # valdir = r'/home/jiangxiaotian/datasets/mul2347_mie_6smallval'
-valdir = r'/home/jiangxiaotian/datasets/mulbb7c_mie_val'
+# valdir = r'/home/jiangxiaotian/datasets/mulbb7c_mie_val'
 # valdir = r'/home/jiangxiaotian/datasets/mul2347_mie_6val'
 # valdir = r'/home/jiangxiaotian/datasets/traintest' #T7920 Liang
-# valdir = r'/home/jiangxiaotian/datasets/mul2347_6smallval'
+valdir = r'/home/ljm/workspace/datasets/mulbb7c_mie_val'
 # pretrainweight = r'./output/train/1103_transconv_pretrain_0.0alpha/last.pt' #T7920
 pretrainweight = r'./output/train/1114_transconv_pretrain_fanfreq_p2_0.0alpha/last.pt' #T7920
 
 middim=64
 alpha = 0.0
-learning_rate = 0.01  # 初始学习率
-lr_time = epoch # 10
+learning_rate = 0.001  # 初始学习率
+lr_time = epoch*2 # 10
 # lr_time = 80 # 10
 cudadevice = 'cuda:1'
 # cudadevice = 'cpu'
@@ -86,7 +86,7 @@ decoder_outdim = 12 # 3S 6M 12L
 paddingsize = 22500
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "output" / "test" /f'{date}_GNNcondf_pretrain_bb7c_{learning_rate}lr_120e'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /f'{date}_GNNcondf_pretrain_bb7c_{learning_rate}lr_120e'), exist_ok=False))##日期-NN结构-飞机-训练数据-改动
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 lossessavedir = os.path.join(save_dir,'loss.png')

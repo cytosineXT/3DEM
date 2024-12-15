@@ -129,6 +129,19 @@ def ssim(img1, img2, window_size=11, size_average=False):
 #     psnr = 10 * torch.log10(maxx ** 2 / mse)
 #     return psnr
 
+# def psnr(rcs, gt): #_with_dynamic_normalization
+#     max1 = rcs.view(rcs.size(0), -1).max(dim=1)[0]  # Max value of img1 for each image in batch
+#     max2 = gt.view(gt.size(0), -1).max(dim=1)[0]  # Max value of img2 for each image in batch
+#     # max_val = torch.max(max1, max2)  # Element-wise max between max1 and max2
+#     max_val = max2  # Element-wise max between max1 and max2
+#     img1_normalized = rcs / max_val.view(-1, 1, 1, 1)
+#     img2_normalized = gt / max_val.view(-1, 1, 1, 1)
+
+#     mse = F.mse_loss(img1_normalized, img2_normalized, reduction='none')
+#     mse = mse.view(mse.size(0), -1).mean(dim=1)  # Compute mean MSE for each image in the batch
+#     psnr = 10 * torch.log10(1.0 / mse)  # Since normalized images have max_val = 1.0
+#     return psnr
+
 def psnr(img1, img2): #_with_dynamic_normalization
     max1 = img1.view(img1.size(0), -1).max(dim=1)[0]  # Max value of img1 for each image in batch
     max2 = img2.view(img2.size(0), -1).max(dim=1)[0]  # Max value of img2 for each image in batch

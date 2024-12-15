@@ -1,8 +1,9 @@
 import torch
 import time
 # from net.jxtnet_Transupconv_fan import MeshEncoderDecoder
+from net.jxtnet_Transupconv import MeshEncoderDecoder
 # from net.jxtnet_Transupconv import MeshEncoderDecoder
-from net.jxtnet_pureTrans import MeshEncoderDecoder
+# from net.jxtnet_pureTrans import MeshEncoderDecoder
 from net.utils import increment_path, meshRCSDataset, get_logger, find_matching_files, process_files
 import torch.utils.data.dataloader as DataLoader
 # import trimesh
@@ -22,13 +23,45 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-def plotRCS2(rcs,savedir,logger):
+# def plotRCS2(rcs,savedir,logger):
+#     import numpy as np
+#     import plotly.graph_objects as go
+#     import plotly.io as pio
+#     tic = time.time()
+#     # rcs = torch.load('/mnt/Disk/jiangxiaotian/datasets/RCS_mapsmall/RCSmap_theta90phi330f0.9.pt')[:,:,0]
+#     # print(rcs.shape)
+#     rcs_np = rcs.detach().cpu().numpy()
+#     npmax = np.max(rcs_np)
+#     npmin = np.min(rcs_np)
+#     theta = np.linspace(0, 2 * np.pi, rcs_np.shape[1])
+#     phi = np.linspace(0, np.pi, rcs_np.shape[0])
+#     theta, phi = np.meshgrid(theta, phi)
+
+#     x = rcs_np * np.sin(phi) * np.cos(theta)
+#     y = rcs_np * np.sin(phi) * np.sin(theta)
+#     z = rcs_np * np.cos(phi)
+
+#     fig = go.Figure(data=[go.Surface(x=x, y=y, z=z, cmin = 0, cmax = npmax,  surfacecolor=rcs_np, colorscale='Jet', colorbar=dict(exponentformat='E',title=dict(side='top',text="RCS/m²"), showexponent='all', showticklabels=True, thickness = 30,tick0 = 0, dtick = npmax))])
+
+#     fig.update_layout(
+#         scene=dict(
+#             xaxis=dict(title="X"),
+#             yaxis=dict(title="Y"),
+#             zaxis=dict(title="Z"),
+#             aspectratio=dict(x=1, y=1, z=0.8),
+#             aspectmode="manual",
+#             camera=dict(eye=dict(x=1.5, y=1.5, z=0.8))
+#         )
+#     )
+#     # pio.show(fig)
+#     pio.write_image(fig, savedir)
+#     # logger.info(f'画图用时：{time.time()-tic:.4f}s')
+
+def plotRCS2(rcs, savedir):
     import numpy as np
     import plotly.graph_objects as go
     import plotly.io as pio
-    tic = time.time()
-    # rcs = torch.load('/mnt/Disk/jiangxiaotian/datasets/RCS_mapsmall/RCSmap_theta90phi330f0.9.pt')[:,:,0]
-    # print(rcs.shape)
+
     rcs_np = rcs.detach().cpu().numpy()
     npmax = np.max(rcs_np)
     npmin = np.min(rcs_np)
@@ -36,25 +69,35 @@ def plotRCS2(rcs,savedir,logger):
     phi = np.linspace(0, np.pi, rcs_np.shape[0])
     theta, phi = np.meshgrid(theta, phi)
 
-    x = rcs_np * np.sin(phi) * np.cos(theta)
-    y = rcs_np * np.sin(phi) * np.sin(theta)
-    z = rcs_np * np.cos(phi)
+    # 调整坐标轴：交换 y 和 z
+    y = rcs_np * np.sin(phi) * np.cos(theta)
+    x = rcs_np * np.cos(phi)  # 现在 y 是 z 轴
+    # x = rcs_np * np.sin(phi) * np.cos(theta)
+    # y = rcs_np * np.cos(phi)  # 现在 y 是 z 轴
+    z = rcs_np * np.sin(phi) * np.sin(theta)  # 现在 z 是 y 轴
 
-    fig = go.Figure(data=[go.Surface(x=x, y=y, z=z, cmin = 0, cmax = npmax,  surfacecolor=rcs_np, colorscale='Jet', colorbar=dict(exponentformat='E',title=dict(side='top',text="RCS/m²"), showexponent='all', showticklabels=True, thickness = 30,tick0 = 0, dtick = npmax))])
+    fig = go.Figure(data=[go.Surface(x=x, y=y, z=z, cmin=0, cmax=npmax,
+                                       surfacecolor=rcs_np, colorscale='Jet',
+                                       colorbar=dict(exponentformat='E',
+                                                     title=dict(side='top', text="RCS/m²"),
+                                                     showexponent='all',
+                                                     showticklabels=True,
+                                                     thickness=30,
+                                                     tick0=0,
+                                                     dtick=npmax))])
 
     fig.update_layout(
         scene=dict(
-            xaxis=dict(title="X"),
-            yaxis=dict(title="Y"),
-            zaxis=dict(title="Z"),
-            aspectratio=dict(x=1, y=1, z=0.8),
+            xaxis=dict(title="Z"),
+            yaxis=dict(title="X"),  # y 轴现在是 Z
+            zaxis=dict(title="Y"),  # z 轴现在是 Y
+            aspectratio=dict(x=1, y=1, z=1),
             aspectmode="manual",
-            camera=dict(eye=dict(x=1.5, y=1.5, z=0.8))
+            camera=dict(eye=dict(x=1.5, y=1.5, z=0.3))  # 调整相机视角
         )
     )
-    # pio.show(fig)
+    pio.show(fig)
     pio.write_image(fig, savedir)
-    # logger.info(f'画图用时：{time.time()-tic:.4f}s')
 
 def plot2DRCS(rcs, savedir,logger,cutmax):
     import matplotlib.pyplot as plt
@@ -92,20 +135,22 @@ def plotstatistic(psnr_list, ssim_list, mse_list, statisticdir):
     # 设置图像大小和子图
     plt.figure(figsize=(12, 6))
 
-    mse_threshold = 7
+    mse_threshold = 0.6
     mse_list = [m for m in mse_list if m <= mse_threshold]
 
     # MSE 直方图和正态分布曲线
     plt.subplot(3, 3, 1)
     # counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True, stacked=True)
-    counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True)
-    fomatter=FuncFormatter(to_percent)
-    plt.gca().yaxis.set_major_formatter(fomatter)
+    # counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True)
+    counts, bins, patches = plt.hist(mse_list, bins=50, edgecolor='black', range=(0,0.5), density=True)
     mu, std = norm.fit(mse_list)
     # x = np.linspace(-5, 15, 1000)
-    x = np.linspace(min(mse_list)-2, max(mse_list)+2, 1000)
-    plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
-    # plt.xlim(-5, 15)  # 限制横坐标范围
+    x = np.linspace(min(mse_list)-0.5, max(mse_list)+0.5, 1000)
+    plt.plot(x, norm.pdf(x, mu, std)*1.5, 'r-', linewidth=2, label='Normal fit')
+    # mse_pdf = norm.pdf(x, mu, std)
+    # mse_pdf_normalized = mse_pdf / mse_pdf.max() * counts.max()  # 归一化到与直方图一致的高度
+    # plt.plot(x, mse_pdf_normalized, 'r-', linewidth=2, label='Normal fit')
+    plt.xlim(-0.1, 0.3)  # 限制横坐标范围
     plt.xlabel('MSE')
     # plt.ylabel('Probability of samples')
     plt.ylabel('Probability of samples (%)')
@@ -151,7 +196,7 @@ def plotstatistic(psnr_list, ssim_list, mse_list, statisticdir):
     plt.savefig(statisticdir)
     plt.close()
 
-def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
+def plotstatistic2(psnr_list, ssim_list, mse_list, nmse_list, statisticdir):
     # 绘制统计图
     def to_percent(y,position):
         return str(int((100*y))) #+"%"#这里可以用round（）函数设置取几位小数
@@ -230,7 +275,7 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
 
 def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, trainval=False, draw3d=False,lgrcs=True,decoder_outdim=3,encoder_layer=6,paddingsize=18000):
     tic = time.time()
-    # pngsavedir = os.path.join(save_dir,'0508_b827_theta90phi330freq0.9_4w_sm.png')
+    # pngsavedir = os.path.join(save_dir,'0508_bbc6_theta90phi330freq0.9_4w_sm.png')
     if trainval == False:
         logger.info(f'正在用{weight}验证推理{rcsdir}及画图')
 
@@ -240,6 +285,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
     ssims = []
     mses = []
     losses = []
+    nmses = []
     corrupted_files = []
     for file in tqdm(os.listdir(rcsdir),desc=f'加载验证数据集',ncols=60,postfix=''):
         if '.pt' in file:
@@ -276,7 +322,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
             planesur_faces, planesur_verts, planesur_faceedges, geoinfo = process_files(objlist, device)
 
             start_time0 = time.time()
-            loss, outrcs, _, psnrlist, _, ssimlist, mse = autoencoder( #这里使用网络，是进去跑了forward
+            loss, outrcs, _, psnrlist, _, ssimlist, mse, nmse = autoencoder( #这里使用网络，是进去跑了forward
                 vertices = planesur_verts,
                 faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
                 # face_edges = planesur_faceedges,
@@ -302,11 +348,11 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
                 save_dir2 = os.path.join(save_dir,f'epoch{epoch}')
                 Path(save_dir2).mkdir(exist_ok=True)
                 outrcspngpath = os.path.join(save_dir2,f'epoch{epoch}_{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}.png')
-                out2Drcspngpath = os.path.join(save_dir2,f'epoch{epoch}_{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_psnr{psnrlist.item():.2f}_ssim{ssimlist.item():.4f}_mse{mse:.4f}_2D.png')
+                out2Drcspngpath = os.path.join(save_dir2,f'epoch{epoch}_{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_psnr{psnrlist.item():.2f}_ssim{ssimlist.item():.4f}_mse{mse:.4f}_nme{nmse:.4f}_2D.png')
                 out2Drcspngpath2 = os.path.join(save_dir2,f'epoch{epoch}_{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_psnr{psnrlist.item():.2f}_ssim{ssimlist.item():.4f}_mse{mse:.4f}_2Dcut.png')
                 outGTpngpath = os.path.join(save_dir2,f'epoch{epoch}_{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_GT.png')
                 out2DGTpngpath = os.path.join(save_dir2,f'epoch{epoch}_{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_2DGT.png')
-                # logger.info(out2Drcspngpath) #查看输出的图片叫啥在哪儿
+                logger.info(out2Drcspngpath) #查看输出的图片叫啥在哪儿
                 plot2DRCS(rcs=outrcs, savedir=out2Drcspngpath, logger=logger,cutmax=None) #预测2D
                 plot2DRCS(rcs=outrcs, savedir=out2Drcspngpath2, logger=logger,cutmax=torch.max(rcs1).item()) #预测2D但是带cut
                 plot2DRCS(rcs=rcs1, savedir=out2DGTpngpath, logger=logger,cutmax=None) #GT2D
@@ -319,6 +365,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
             psnrs.append(psnrlist.mean())
             ssims.append(ssimlist.mean())
             mses.append(mse.mean())
+            nmses.append(nmse.mean())
             # psnrs.append(psnrlist.item())
             # ssims.append(ssimlist.item())
             # mses.append(mse.item())
@@ -326,18 +373,19 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
         ave_psnr = sum(psnrs)/len(psnrs)
         ave_ssim = sum(ssims)/len(ssims)
         ave_mse = sum(mses)/len(mses)
+        ave_nmse = sum(nmses)/len(nmses)
         if trainval == False:
-            logger.info(f"已用{weight}验证{len(losses)}个数据, Mean Loss: {ave_loss:.4f}, Mean PSNR: {ave_psnr:.2f}dB, Mean SSIM: {ave_ssim:.4f}, Mean MSE:{ave_mse:.4f}")
+            logger.info(f"已用{weight}验证{len(losses)}个数据, Mean Loss: {ave_loss:.4f}, Mean PSNR: {ave_psnr:.2f}dB, Mean SSIM: {ave_ssim:.4f}, Mean MSE:{ave_mse:.4f}, Mean NMSE:{ave_nmse:.4f}")
             logger.info(f'val数据集地址:{rcsdir}, 总耗时:{time.strftime("%H:%M:%S", time.gmtime(time.time()-tic))}')
             logger.info(f"损坏的文件：{corrupted_files}")
         logger.info(f'val数据集地址:{rcsdir}, 总耗时:{time.strftime("%H:%M:%S", time.gmtime(time.time()-tic))}')
-        logger.info(f'↑----val loss:{ave_loss:.4f},psnr:{ave_psnr:.2f},ssim:{ave_ssim:.4f},mse:{ave_mse:.4f}----↑')
+        logger.info(f'↑----val loss:{ave_loss:.4f},psnr:{ave_psnr:.2f},ssim:{ave_ssim:.4f},mse:{ave_mse:.4f},nmse:{ave_nmse:.4f}----↑')
         # if epoch % 20 == 0 or epoch == -1: #存指定倍数轮的
         #     statisdir = os.path.join(save_dir,f'statistic_epoch{epoch}.png')
         #     plotstatistic(psnrs,ssims,mses,statisdir)
 
-        statisdir = os.path.join(save_dir,f'statistic_epoch{epoch}_PSNR{ave_psnr:.2f}dB_SSIM{ave_ssim:.4f}_MSE:{ave_mse:.4f}_Loss{ave_loss:.4f}.png')
-        plotstatistic2(psnrs,ssims,mses,statisdir)
+        statisdir = os.path.join(save_dir,f'statistic_epoch{epoch}_PSNR{ave_psnr:.2f}dB_SSIM{ave_ssim:.4f}_MSE{ave_mse:.4f}_NMSE{ave_nmse:.4f}_Loss{ave_loss:.4f}.png')
+        plotstatistic2(psnrs,ssims,mses,nmses,statisdir)
         # plotstatistic(psnrs,ssims,mses,statisdir,ave_loss,ave_psnr,ave_ssim,ave_mse)
 
 
@@ -348,27 +396,33 @@ if __name__ == '__main__':
     draw = True
     # draw = False
     draw3d = False
+    # draw3d = True
     lgrcs = False
     device = torch.device(cuda if torch.cuda.is_available() else "cpu")
     batchsize = 1
-    decoder_outdim = 3
     encoder_layer = 6
+    decoder_outdim = 12
 
-    # weight = r'./output/test/0509upconv2_b827_001lr6/best2w.pt'
-    # weight = r'./output/test/0514upconv2_b827_10/last.pt'
-    # weight = r'./output/train/0605upconv4fckan_mul2347_pretrain3/last.pt'
-    weight = r'./output/train/0615upconv4fckan_mul2347pretrain_000/best.pt'
-    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_ctrl9090_val'
-    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_test10'
-    # rcsdir = r'/mnt/Disk/jiangxiaotian/datasets/b827_xiezhen_small'
-    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/b827_xiezhen_val'
-    rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val'
-    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_6val2'
-    # rcsdir = r'/mnt/Disk/jiangxiaotian/puredatasets/mul2347_train'
+    # weight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/mul2347last1886.pt'
+    # weight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/mul2347psnr1942ssim7328.pt'
+    weight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1201_TransConv_finetune_bb7c_silu_nofilter_psnr2357/last.pt'
 
-    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /'0619_upconv4_mul2347pretrain_val6_'), exist_ok=False))
+    # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/bb7c_mie_val'
+    # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pba0f_mie_val'
+    # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pbaa9_mie_val'
+    # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pbb7d_mie_val'
+    # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pbbc6_mie_val'
+    # rcsdir = r'/home/ljm/workspace/datasets/bb7c_smallval'
+    rcsdir = r'/home/ljm/workspace/datasets/mul2347_mie_6smallval'
+
+    from datetime import datetime
+    date = datetime.today().strftime("%m%d")
+    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /f'{date}_TransConv_trainbb7cval6_filter'), exist_ok=False))
     logdir = os.path.join(save_dir,'alog.txt')
     logger = get_logger(logdir)
     epoch = -1
 
     valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize ,trainval, draw3d,lgrcs,decoder_outdim,encoder_layer)
+
+    # baa9 ba0f bb7d bbc6 
+    # b827 bb26
