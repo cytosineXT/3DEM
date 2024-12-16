@@ -1,4 +1,4 @@
-'''I solemnly swear that I am up to no good'''
+# python NNtrain_arg.py --seed 777 --gama 0.0005 --cuda 'cuda:0'
 #0802会议精神：1.decoder换成Transformer试试，swin-Transformer可能引入不合理的归纳偏置(可能不行 因为361*720对于Transformer来说太长了。。)；2.incident conditioning也要归一化 否则不合理(已完成)；3.AutoEncoder用纯3D训练，decoder再单独训练一个带skip connection的unet decoder(重头戏)；4.学习率调度不要一直起伏，而是用半个cos先大后小这样做；5.定长pooling实现，这样就不用padding了，否则有0还是不合理。
 import torch
 import time
@@ -23,6 +23,7 @@ t = TicToc()
 t.tic()
 import random
 import numpy as np
+import argparse
 
 def setup_seed(seed):
      torch.manual_seed(seed)
@@ -32,6 +33,20 @@ def setup_seed(seed):
      np.random.seed(seed)
      random.seed(seed)
 # 设置随机数种子
+def parse_args():
+    parser = argparse.ArgumentParser(description="Script with customizable parameters using argparse.")
+    parser.add_argument('--epoch', type=int, default=60, help='Number of training epochs')
+    parser.add_argument('--use_preweight', type=bool, default=False, help='Whether to use pretrained weights')
+    parser.add_argument('--draw', type=bool, default=True, help='Whether to enable drawing')
+
+    parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_pretrain', help='Path to rcs directory')
+    parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_val', help='Path to validation directory')
+    parser.add_argument('--pretrainweight', type=str, default='/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1129_TransConv_pretrain_b7fd_nofilter/last.pt', help='Path to pretrained weights')
+
+    parser.add_argument('--seed', type=int, default=777, help='Random seed for reproducibility')
+    parser.add_argument('--gama', type=float, default=0.001, help='Loss threshold or gamma parameter')
+    parser.add_argument('--cuda', type=str, default='cuda:1', help='CUDA device to use')
+    return parser.parse_args()
 
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 tic0 = time.time()
@@ -44,17 +59,34 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-# epoch = 1000
-epoch = 60
-use_preweight = True
-use_preweight = False
-draw = False
-draw = True
+args = parse_args()
 
+# 使用命令行参数
+epoch = args.epoch
+use_preweight = args.use_preweight
+draw = args.draw
+rcsdir = args.rcsdir
+valdir = args.valdir
+pretrainweight = args.pretrainweight
+seed = args.seed
+gama = args.gama
+cudadevice = args.cuda
+
+if 'pretrain' in rcsdir:
+    mode = 'pretrain'
+else:
+    if use_preweight == True:
+        mode = 'finetune'
+    else:
+        mode = 'train'
+# 设置随机种子
+setup_seed(seed)
+
+# 其他固定参数
 accumulation_step = 8
 threshold = 20
 bestloss = 1
-epoch_loss1 = 0.
+epoch_loss1 = 0.0
 in_ems = []
 rcss = []
 cnt = 0
@@ -63,40 +95,20 @@ psnrs = []
 ssims = []
 mses = []
 corrupted_files = []
-lgrcs = True
 lgrcs = False
 shuffle = True
-# shuffle = False
-multigpu = False 
-
-# rcsdir = r'/home/ljm/workspace/datasets/mul2_mie_pretrain' #T7920 Liang
-# rcsdir = r'/home/ljm/workspace/datasets/mulb979_mie_pretrain' #T7920 Liang
-rcsdir = r'/home/ljm/workspace/datasets/mulbb7c_mie_pretrain' #T7920 Liang
-# rcsdir = r'/home/ljm/workspace/datasets/traintest' #T7920 Liang
-# valdir = r'/home/ljm/workspace/datasets/mul2_mie_val'
-# valdir = r'/home/ljm/workspace/datasets/mulb979_mie_val'
-valdir = r'/home/ljm/workspace/datasets/mulbb7c_mie_val'
-# valdir = r'/home/ljm/workspace/datasets/traintest'
-# pretrainweight = r'./output/train/1103_transconv_pretrain_0.0alpha/last.pt' #T7920
-pretrainweight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1129_TransConv_pretrain_b7fd_nofilter/last.pt' #T7920
-
-seed = 777
-setup_seed(seed)
-gama = 0.001
+multigpu = False
 alpha = 0.0
 learning_rate = 0.001  # 初始学习率
-lr_time = epoch # 10
-# lr_time = 80 # 10
-cudadevice = 'cuda:1'
-# batchsize = 4 #TransUpconv能10 PureTrans只能4
-batchsize = 10
-# batchsize = 4
+lr_time = epoch
+batchsize = 10  # TransUpconv能10 PureTrans只能4
 encoder_layer = 6
-decoder_outdim = 12 # 3S 6M 12L
+decoder_outdim = 12  # 3S 6M 12L
 paddingsize = 18000
+
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /f'{date}_pretrain_bb7c_seed{seed}_maxloss{gama}_{cudadevice}_'), exist_ok=False))##
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /f'{date}_{mode}_bb7c_seed{seed}_maxloss{gama}_{cudadevice}_'), exist_ok=False))##
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 lossessavedir = os.path.join(save_dir,'loss.png')
@@ -109,7 +121,7 @@ logger = get_logger(logdir)
 # logger.info(f'使用net.jxtnet_Transupconv')
 
 # logger.info(f'使用jxtnet_transformerEncoder.py')
-logger.info(f'参数设置：batchsize={batchsize}, epoch={epoch}, use_preweight={use_preweight}, cudadevice={cudadevice}, threshold={threshold}, learning_rate={learning_rate}, lr_time={lr_time}, shuffle={shuffle}, multigpu={multigpu}, lgrcs={lgrcs}, alpha={alpha}')
+logger.info(f'参数设置：batchsize={batchsize}, epoch={epoch}, use_preweight={use_preweight}, cudadevice={cudadevice}, learning_rate={learning_rate}, lr_time={lr_time}, shuffle={shuffle}, gama={gama}, seed={seed}, rcsdir = {rcsdir}, valdir = {valdir}, pretrainweight = {pretrainweight}')
 logger.info(f'数据集用{rcsdir}训练')
 logger.info(f'保存到{lastsavedir}')
 
@@ -330,7 +342,7 @@ for i in range(epoch):
     plt.savefig(msesavedir)
     plt.close()
     # plt.show()
-    if "pretrain" in rcsdir:
+    if mode == "pretrain":
         if (i+1) % 20 == 0 or i == -1: #存指定倍数轮的checkpoint
         # if (i+1) % 1 == 0 or i == -1: #存指定倍数轮的checkpoint
             valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)

@@ -754,6 +754,7 @@ class MeshEncoderDecoder(Module):
         logger=None,
         device='cpu',
         lgrcs=False,
+        gama=0.001,
     ):
         # t.toc('  刚进来',restart=True)
         
@@ -811,7 +812,7 @@ class MeshEncoderDecoder(Module):
                 # logger.info(f'再变回去的GT:{torch.pow(10, GT)[0]}')
                 # GT = torch.pow(10, GT) #反变换在这里
             #------------------------------------------------------------------------
-            TVL1loss = TVL1Loss(beta=1.0,gama=0.1) #我草 发现一个错误  pixel_dif1 = images[1:, :, :] - images[:-1, :, :] 但是GT.shape = torch.Size([1, 360, 720])，第一项是batchsize。。。
+            TVL1loss = TVL1Loss(beta=1.0,gama=gama) #我草 发现一个错误  pixel_dif1 = images[1:, :, :] - images[:-1, :, :] 但是GT.shape = torch.Size([1, 360, 720])，第一项是batchsize。。。
             loss = TVL1loss(decoded,GT)/(GT.shape[0]) #平均了batch的loss
             # print('TVL1loss:')
             # tic = toc(tic)
