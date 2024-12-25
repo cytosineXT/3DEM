@@ -278,6 +278,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
     # pngsavedir = os.path.join(save_dir,'0508_bbc6_theta90phi330freq0.9_4w_sm.png')
     if trainval == False:
         logger.info(f'正在用{weight}验证推理{rcsdir}及画图')
+    timels = []
 
     in_ems = []
     rcss = []
@@ -333,6 +334,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
                 device = device,
                 lgrcs = lgrcs
             )
+            time1 = time.time()-start_time0
             # torch.cuda.empty_cache()
             if lgrcs == True:
                 outrcs = torch.pow(10, outrcs)
@@ -341,8 +343,9 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
             outrcs = outrcs.squeeze()
             rcs1 = rcs1.squeeze()
             if trainval == False:
-                logger.info(f'推理用时：{time.time()-start_time0:.4f}s')
+                logger.info(f'推理用时：{time1:.4f}s')
                 logger.info(f'{plane}, em={eminfo}, loss={loss:.4f}')
+            timels.append(time1)
             # torch.cuda.empty_cache()
             if draw == True:
                 save_dir2 = os.path.join(save_dir,f'epoch{epoch}')
@@ -369,6 +372,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
             # psnrs.append(psnrlist.item())
             # ssims.append(ssimlist.item())
             # mses.append(mse.item())
+        ave_inftime = sum(timels)/len(timels)
         ave_loss = sum(losses)/len(losses)
         ave_psnr = sum(psnrs)/len(psnrs)
         ave_ssim = sum(ssims)/len(ssims)
@@ -376,8 +380,9 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
         ave_nmse = sum(nmses)/len(nmses)
         if trainval == False:
             logger.info(f"已用{weight}验证{len(losses)}个数据, Mean Loss: {ave_loss:.4f}, Mean PSNR: {ave_psnr:.2f}dB, Mean SSIM: {ave_ssim:.4f}, Mean MSE:{ave_mse:.4f}, Mean NMSE:{ave_nmse:.4f}")
-            logger.info(f'val数据集地址:{rcsdir}, 总耗时:{time.strftime("%H:%M:%S", time.gmtime(time.time()-tic))}')
+            # logger.info(f'val数据集地址:{rcsdir}, 总耗时:{time.strftime("%H:%M:%S", time.gmtime(time.time()-tic))}')
             logger.info(f"损坏的文件：{corrupted_files}")
+        logger.info(f"平均推理时长：{ave_inftime:.4f}s")
         logger.info(f'val数据集地址:{rcsdir}, 总耗时:{time.strftime("%H:%M:%S", time.gmtime(time.time()-tic))}')
         logger.info(f'↑----val loss:{ave_loss:.4f},psnr:{ave_psnr:.2f},ssim:{ave_ssim:.4f},mse:{ave_mse:.4f},nmse:{ave_nmse:.4f}----↑')
         # if epoch % 20 == 0 or epoch == -1: #存指定倍数轮的
@@ -394,7 +399,7 @@ if __name__ == '__main__':
     trainval = False
     cuda = 'cuda:0'
     draw = True
-    # draw = False
+    draw = False
     draw3d = False
     # draw3d = True
     lgrcs = False
@@ -405,19 +410,22 @@ if __name__ == '__main__':
 
     # weight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/mul2347last1886.pt'
     # weight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/mul2347psnr1942ssim7328.pt'
-    weight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1201_TransConv_finetune_bb7c_silu_nofilter_psnr2357/last.pt'
+    weight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1218_finetune_bb7ctrain50_seed77777_maxloss0.0005_cuda:1_/last.pt'
 
-    # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/bb7c_mie_val'
     # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pba0f_mie_val'
     # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pbaa9_mie_val'
     # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pbb7d_mie_val'
     # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pbbc6_mie_val'
     # rcsdir = r'/home/ljm/workspace/datasets/bb7c_smallval'
-    rcsdir = r'/home/ljm/workspace/datasets/mul2347_mie_6smallval'
+    rcsdir = r'/home/ljm/workspace/datasets/mulbb7c_mie_val'
+    # rcsdir = r'/home/ljm/workspace/datasets/mulb979_mie_val'
+    # rcsdir = r'/home/ljm/workspace/datasets/mulb7fd_mie_val'
+    # rcsdir = r'/home/ljm/workspace/datasets/mul2_mie_val'
+    
 
     from datetime import datetime
     date = datetime.today().strftime("%m%d")
-    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /f'{date}_TransConv_trainbb7cval6_filter'), exist_ok=False))
+    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /f'{date}_TransConv_bb7c50p_inftime'), exist_ok=False))
     logdir = os.path.join(save_dir,'alog.txt')
     logger = get_logger(logdir)
     epoch = -1

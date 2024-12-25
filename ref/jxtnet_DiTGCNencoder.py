@@ -33,7 +33,7 @@ from taylor_series_linear_attention import TaylorSeriesLinearAttn
 from torch_geometric.nn.conv import SAGEConv
 from gateloop_transformer import SimpleGateLoopLayer
 import numpy as np
-from net.kan2 import KAN
+from ref.kan2 import KAN
 from ditmodel import DiT
 
 # from net.kan import *

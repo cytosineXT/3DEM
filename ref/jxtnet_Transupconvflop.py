@@ -91,8 +91,8 @@ class TVL1Loss(nn.Module): # maxloss!
         # print(f"L1={loss_L1:.4f},TV={tvloss:.4f},max={maxloss:.4f}")
         total_loss = loss_L1 + tvloss * self.beta + maxloss * self.gama
         # print(f'l1loss:{loss_L1},tvloss:{tvloss},totalloss:{total_loss}')
-        return total_loss
-        # return loss_L1
+        # return total_loss
+        return loss_L1
 
 # Convert spherical coordinates to cartesian
 def spherical_to_cartesian(theta, phi, device="cpu"):
@@ -451,11 +451,17 @@ class MeshEncoderDecoder(Module):
         #         nn.LayerNorm(decoder_outdim*8*45*90)).to(device)
         
         self.conv1d1 = nn.Conv1d(576, decoder_outdim*8, kernel_size=1, stride=1, dilation=1 ,padding=0).to(device) #[351,576]-[351,96]
+        
         self.fc1d1 = nn.Sequential(
-                nn.Linear(int(self.paddingsize/(2**encoder_layer)), int(self.paddingsize/(2**encoder_layer))),
+                FANLayer(int(self.paddingsize/(2**encoder_layer)), int(self.paddingsize/(2**encoder_layer))),
                 nn.SiLU(),
-                nn.Linear(int(self.paddingsize/(2**encoder_layer)), 45*90),#4050
+                FANLayer(int(self.paddingsize/(2**encoder_layer)), 4051),#4050
                 nn.LayerNorm(45*90)).to(device) #[351,96]-[45*90,96]
+        # self.fc1d1 = nn.Sequential(
+        #         nn.Linear(int(self.paddingsize/(2**encoder_layer)), int(self.paddingsize/(2**encoder_layer))),
+        #         nn.SiLU(),
+        #         nn.Linear(int(self.paddingsize/(2**encoder_layer)), 45*90),#4050
+        #         nn.LayerNorm(45*90)).to(device) #[351,96]-[45*90,96]
         
         # decoder_outdim*8 = 64
         # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
@@ -486,15 +492,15 @@ class MeshEncoderDecoder(Module):
         self.incident_angle_linear1 = nn.Linear(2, 96*int(self.paddingsize/(2**encoder_layer)))
         # self.sig1 = nn.Sigmoid()
         # self.sig2 = nn.Sigmoid()
-        self.incident_freq_linear1 = nn.Linear(1, 96*int(self.paddingsize/(2**encoder_layer)))
+        # self.incident_freq_linear1 = nn.Linear(1, 96*int(self.paddingsize/(2**encoder_layer)))
         # self.incident_freq_linear1 = nn.Sequential(
         #         nn.Linear(1, 8),
         #         nn.SiLU(),
         #         nn.Linear(8,int(self.paddingsize/(2**encoder_layer)))).to(device)
         self.incident_angle_linear2 = nn.Linear(2, decoder_outdim*8*45*90)
-        self.incident_freq_linear2 = nn.Linear(1, decoder_outdim*8*45*90)
-        self.freqfan1 = FANLayer(1, int(self.paddingsize/(2**encoder_layer))*96, with_gate=True)
-        self.freqfan2 = FANLayer(1, decoder_outdim*8*45*90, with_gate=True)
+        # self.incident_freq_linear2 = nn.Linear(1, decoder_outdim*8*45*90)
+        # self.freqfan1 = FANLayer(1, int(self.paddingsize/(2**encoder_layer))*96, with_gate=True)
+        # self.freqfan2 = FANLayer(1, decoder_outdim*8*45*90, with_gate=True)
         # self.incident_freq_linear2 = nn.Sequential(
         #         nn.Linear(1, 8),
         #         nn.SiLU(),
@@ -627,7 +633,7 @@ class MeshEncoderDecoder(Module):
         face_embed = face_embed.reshape(-1,face_embed.shape[0],face_embed.shape[-1])#从(1,25000,576)变成(25000,1,576)
         '''(L B C)'''
         checksize(face_embed)
-        # face_embed = self.pe(face_embed)
+        face_embed = self.pe(face_embed)
         face_embed = self.transformer_model(face_embed)
         face_embed = face_embed.reshape(-1,face_embed.shape[0],face_embed.shape[-1])#从(25000,1,576)变回(1,25000,576)
 
@@ -681,6 +687,7 @@ class MeshEncoderDecoder(Module):
         # x = x + condfreq1.unsqueeze(1).repeat(1, x.shape[1], 1)
         # x = x + condfreqfan1
 
+        print("Input shape before fc1d1:", x.shape)
         x = self.fc1d1(x) #[96,351]-[96,45*90]
         # checksize(x)
         x = x + condangle2

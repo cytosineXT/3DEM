@@ -28,7 +28,7 @@ import argparse
 def setup_seed(seed):
      torch.manual_seed(seed)
      torch.cuda.manual_seed_all(seed)
-    #  torch.backends.cudnn.benchmark = False  # 关闭优化搜索
+     torch.backends.cudnn.benchmark = False  # 关闭优化搜索
      torch.backends.cudnn.deterministic = True
      np.random.seed(seed)
      random.seed(seed)
@@ -39,13 +39,16 @@ def parse_args():
     parser.add_argument('--use_preweight', type=bool, default=False, help='Whether to use pretrained weights')
     parser.add_argument('--draw', type=bool, default=True, help='Whether to enable drawing')
 
-    parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_pretrain', help='Path to rcs directory')
-    parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_val', help='Path to validation directory')
+    parser.add_argument('--trainname', type=str, default='mul2347', help='logname')
+    parser.add_argument('--rcsdir', type=str, default='/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pbaa9_mie_pretrain', help='Path to rcs directory')
+    parser.add_argument('--valdir', type=str, default='/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pbaa9_mie_val', help='Path to validation directory')
+    # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/mul_mie_pretrain', help='Path to rcs directory')
+    # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_val', help='Path to validation directory')
     parser.add_argument('--pretrainweight', type=str, default='/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1129_TransConv_pretrain_b7fd_nofilter/last.pt', help='Path to pretrained weights')
 
-    parser.add_argument('--seed', type=int, default=777, help='Random seed for reproducibility')
+    parser.add_argument('--seed', type=int, default=77777, help='Random seed for reproducibility')
     parser.add_argument('--gama', type=float, default=0.001, help='Loss threshold or gamma parameter')
-    parser.add_argument('--cuda', type=str, default='cuda:1', help='CUDA device to use')
+    parser.add_argument('--cuda', type=str, default='cuda:0', help='CUDA device to use')
     return parser.parse_args()
 
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
@@ -71,6 +74,7 @@ pretrainweight = args.pretrainweight
 seed = args.seed
 gama = args.gama
 cudadevice = args.cuda
+name = args.trainname
 
 if 'pretrain' in rcsdir:
     mode = 'pretrain'
@@ -108,7 +112,7 @@ paddingsize = 18000
 
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /f'{date}_{mode}_bb7c_seed{seed}_maxloss{gama}_{cudadevice}_'), exist_ok=False))##
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /f'{date}_{mode}_{name}_seed{seed}_maxloss{gama}_{cudadevice}_'), exist_ok=False))##
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 lossessavedir = os.path.join(save_dir,'loss.png')

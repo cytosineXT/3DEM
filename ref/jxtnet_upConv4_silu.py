@@ -33,9 +33,7 @@ from taylor_series_linear_attention import TaylorSeriesLinearAttn
 from torch_geometric.nn.conv import SAGEConv
 from gateloop_transformer import SimpleGateLoopLayer
 import numpy as np
-from net.kan2 import KAN
-from ditmodel import DiT
-
+from ref.kan2 import KAN
 # from net.kan import *
 
 def total_variation(images):
@@ -305,7 +303,7 @@ def get_derived_face_featuresjxt(
         emangle = incident_angle_mtx,
         emfreq = incident_freq_mtx.to(device),
         #geoinfo = geomtx
-    ),incident_angle_vec #,mixfreqgeo#, incident_angle_vec #这里就算回了freq=em[0][2]好像也没啥用吧，没离散化的 入射方向矢量倒是有用！
+    ) #,mixfreqgeo#, incident_angle_vec #这里就算回了freq=em[0][2]好像也没啥用吧，没离散化的 入射方向矢量倒是有用！
 '''
 face_coords = tensor([[[[-0.4410, -0.0583, -0.1358],
           [-0.4377, -0.0619, -0.1303],
@@ -715,23 +713,40 @@ class MeshAutoencoder(Module):
         checkpoint_quantizer = False,#是否对量化器进行内存检查点
         quads = False,               #是否使用四边形
         middim = 64,
-        device = 'cpu',
-        hidden_size = 576,
-        paddingsize = 25000
-        
+        device = 'cpu'
     ): #我草 这里面能调的参也太NM多了吧 这炼丹能练死人
         super().__init__()
-        self.device = device
-        self.paddingsize = paddingsize
-        self.hidden_size = hidden_size
+        # self.kan0 = KAN([4,64,22500],device=device)
+        # self.fc0 = nn.Linear(4,22500,device=device)
+
         #----------------------------------------------------jxt decoder----------------------------------------------------------
-        self.conv1d1 = nn.Conv1d(self.hidden_size, self.hidden_size, kernel_size=10, stride=10, dilation=1 ,padding=0)
-        self.fcneck = nn.Sequential(
-            nn.Linear(self.hidden_size, self.hidden_size, bias=True,device=device),
-            nn.SiLU(),
-            nn.Linear(self.hidden_size, self.hidden_size, bias=True,device=device),
-        )
-        self.dit = DiT(hidden_size=hidden_size, num_heads=16, depth=28, length=int(self.paddingsize/10)).to(device)
+        self.conv1d1 = nn.Conv1d(785, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        self.fc1d1 = nn.Linear(2250, middim*45*90)
+        self.kan1 = KAN([2250,64,2250],device=device)
+        # Decoder3
+        self.upconv1 = nn.ConvTranspose2d(middim, int(middim/2), kernel_size=2, stride=2)
+        self.bn1 = nn.BatchNorm2d(int(middim/2))  # 添加的批量归一化层1
+        self.conv1_1 = nn.Conv2d(int(middim/2), int(middim/2), kernel_size=3, stride=1, padding=1)  # 添加的卷积层1
+        self.conv1_2 = nn.Conv2d(int(middim/2), int(middim/2), kernel_size=3, stride=1, padding=1)  # 添加的卷积层2
+        self.bn1_1 = nn.BatchNorm2d(int(middim/2))  # 添加的批量归一化层1
+        self.bn1_2 = nn.BatchNorm2d(int(middim/2))  # 添加的批量归一化层2
+
+        self.upconv2 = nn.ConvTranspose2d(int(middim/2), int(middim/4), kernel_size=2, stride=2)
+        self.bn2 = nn.BatchNorm2d(int(middim/4))  # 添加的批量归一化层1
+        self.conv2_1 = nn.Conv2d(int(middim/4), int(middim/4), kernel_size=3, stride=1, padding=1)  # 添加的卷积层1
+        self.conv2_2 = nn.Conv2d(int(middim/4), int(middim/4), kernel_size=3, stride=1, padding=1)  # 添加的卷积层2
+        self.bn2_1 = nn.BatchNorm2d(int(middim/4))  # 添加的批量归一化层1
+        self.bn2_2 = nn.BatchNorm2d(int(middim/4))  # 添加的批量归一化层2
+
+        self.upconv3 = nn.ConvTranspose2d(int(middim/4), int(middim/8), kernel_size=2, stride=2, output_padding=1)
+        self.bn3 = nn.BatchNorm2d(int(middim/8))
+        self.conv3_1 = nn.Conv2d(int(middim/8), int(middim/8), kernel_size=3, stride=1, padding=1)  # 添加的卷积层1
+        self.conv3_2 = nn.Conv2d(int(middim/8), int(middim/8), kernel_size=3, stride=1, padding=1)  # 添加的卷积层1
+        self.bn3_1 = nn.BatchNorm2d(int(middim/8))  # 添加的批量归一化层1
+        self.bn3_2 = nn.BatchNorm2d(int(middim/8))  # 添加的批量归一化层2
+        self.conv1x1 = nn.Conv2d(int(middim/8), 1, kernel_size=1, stride=1, padding=0)   #1×1卷积，把多的维度融合了
+
 
         self.num_vertices_per_face = 3 if not quads else 4
         total_coordinates_per_face = self.num_vertices_per_face * 3
@@ -761,21 +776,17 @@ class MeshAutoencoder(Module):
         self.discretize_emnoangle = partial(discretize, num_discrete = num_discrete_emnoangle, continuous_range = (0., pi)) #0还是-pi? 是0到pi!! jxt
         self.emnoangle_embed = nn.Embedding(num_discrete_emnoangle, dim_emnoangle_embed) #jxt
         self.discretize_emangle = partial(discretize, num_discrete = num_discrete_emangle, continuous_range = coor_continuous_range) #jxt
-        self.emangle_embed = nn.Embedding(num_discrete_emangle, dim_emangle_embed) #jxt 128 64
+        self.emangle_embed = nn.Embedding(num_discrete_emangle, dim_emangle_embed) #jxt
         self.discretize_emfreq = partial(discretize, num_discrete = num_discrete_emfreq, continuous_range = (0.,1.0)) #2024年5月11日15:28:15我草 是不是没必要离散，这个情况，是不是其实我的freq本身其实就已经离散的了，不用我再人为离散化一次？只是embedding的时候他映射到embedding空间之后，隐含的空间关系就能实现我“连续回归”的目的？而且280个点离散到128个离散值，本身就有问题吧你妈的
         self.discretize_emfreq2 = partial(discretize2, num_discrete=num_discrete_emfreq, continuous_range=(0.,1.0))
         self.discretize_emfreq3 = partial(discretize3, num_discrete=num_discrete_emfreq, continuous_range=(0.,1.0))
         # self.discretize_emfreq2 = partial(gumbel_softmax, num_discrete=num_discrete_emfreq, continuous_range=(0.,1.0))
 
         self.emfreq_embed = nn.Embedding(num_discrete_emfreq, dim_emfreq_embed) #jxt
-        # self.enfc0 = nn.Linear(4,22500,device=device) #为什么我的embedding层都能有梯度学出来，linear就不能学呢
-        self.enmlp0 = nn.Sequential(
-            nn.Linear(4, 4, bias=True,device=device),
-            nn.SiLU(),
-            nn.Linear(4, self.paddingsize, bias=True,device=device),
-        )
+        self.enfc0 = nn.Linear(4,22500,device=device) #为什么我的embedding层都能有梯度学出来，linear就不能学呢
         # self.enfc0.weight.data = self.enfc0.weight.data.to(torch.float64)
         # self.enfc0.bias.data = self.enfc0.bias.data.to(torch.float64)
+        self.enkan0 = KAN([4,4,4],device=device)
 
         # attention related
 
@@ -814,27 +825,17 @@ class MeshAutoencoder(Module):
             nn.LayerNorm(init_encoder_dim)
         )
 
-        # self.encoders = ModuleList([])
-        # for dim_layer in encoder_dims_through_depth:
-        #     sage_conv = SAGEConv(
-        #         curr_dim,
-        #         dim_layer,
-        #         **sageconv_kwargs
-        #     )
-        #     self.encoders.append(sage_conv) #这里把encoder创好了并贴上了sage
-        #     curr_dim = dim_layer
+        self.encoders = ModuleList([])
 
-        self.sage1 = SAGEConv(64, 128,**sageconv_kwargs)
-        self.enLN1 = nn.LayerNorm(128)
+        for dim_layer in encoder_dims_through_depth:
+            sage_conv = SAGEConv(
+                curr_dim,
+                dim_layer,
+                **sageconv_kwargs
+            )
 
-        self.sage2 = SAGEConv(128,256 ,**sageconv_kwargs)
-        self.enLN2 = nn.LayerNorm(256)
-
-        self.sage3 = SAGEConv(256,256 ,**sageconv_kwargs)
-        self.enLN3 = nn.LayerNorm(256)
-
-        self.sage4 = SAGEConv(256,576 ,**sageconv_kwargs)
-        self.enLN4 = nn.LayerNorm(576)
+            self.encoders.append(sage_conv) #这里把encoder创好了并贴上了sage
+            curr_dim = dim_layer
 
         self.encoder_attn_blocks = ModuleList([])
 
@@ -980,41 +981,29 @@ class MeshAutoencoder(Module):
         # ticc = time.time()
 
         face_coords = jxtget_face_coords(vertices, faces) 
-        pad_size = self.paddingsize - face_coords.size(1)
+        pad_size = 22500 - face_coords.size(1)
         face_coords = F.pad(face_coords, (0, 0, 0, 0, 0, pad_size)) #x.shape=torch.Size([2, 20804, 576])
         face_mask = F.pad(face_mask, (0, pad_size)) #x.shape=torch.Size([2, 20804, 576])
 
         geoinfo = torch.Tensor(geoinfo).to(device).requires_grad_()
 
-        in_obj = in_em[0]
-
-        #----------------------------入射频率编码---------------------------------------------------
-
-        in_emfreq = in_em[3].clone() #原始频率保存
-
+        # in_obj = in_em[0]
+        # in_emfreq = in_em[3].clone()
         in_em[3]=transform_to_log_coordinates(in_em[3]).to(device) #频率转换为对数坐标 加在encoder里！
-        ln_emfreq = in_em[3].clone() #对数频率保存
-        in_em1 = in_em #[plane,theta,phi,ln(freq)]所有信息存在en_em1里
-        '''
-        [('b943', 'b943', 'bb7c', 'b7fd', 'bb7c', 'b7fd', 'b943', 'b979', 'b979', 'b943'),
-         tensor([150, 180, 180,  90, 120,  30, 150,  90, 180,  90]), 
-         tensor([ 60, 210,  30, 150,  30, 210,  60, 330, 150,  30]), 
-         tensor([0.9142, 0.7557, 0.9015, 0.6822, 0.5867, 0.5681, 0.7617, 0.5124, 0.5747, 0.9309], device='cuda:0', dtype=torch.float64)]
-        '''
-
-        mixfreqgeo = torch.cat([geoinfo, in_em[3].unsqueeze(1)], dim=1).float() #对数频率加上几何信息
-        incident_freq_mtx=self.enmlp0(mixfreqgeo) #加上几何信息的对数频率经过fc，理想中应该生成高端的归一化电尺寸
-        # incident_freq_mtx=self.enfc0(mixfreqgeo) #加上几何信息的对数频率经过fc，理想中应该生成高端的归一化电尺寸
-        # incident_freq_mtx=self.enkan0(mixfreqgeo)
-        Ka_emfreq = incident_freq_mtx.clone() #归一化电尺寸保存
-
+        # ln_emfreq = in_em[3].clone()
+        mixfreqgeo = torch.cat([geoinfo, in_em[3].unsqueeze(1)], dim=1).float()
+        # mixfreqgeo = torch.Tensor([sublist + value for sublist, value in zip(geoinfo, in_em[3])]) #torch.size=([batchsize,4])
+        incident_freq_mtx=self.enkan0(mixfreqgeo)
+        incident_freq_mtx=self.enfc0(incident_freq_mtx) #为啥换成fc之后也没有grad。。看来不是kan的问题
+        # incident_freq_mtx=self.enfc0(mixfreqgeo) #为啥换成fc之后也没有grad。。看来不是kan的问题
+        # incident_freq_mtx=self.enkan0(incident_freq_mtx)
+        # kan_emfreq = incident_freq_mtx.clone()
+        # incident_freq_mtx=torch.sigmoid(incident_freq_mtx) #不用0到1了 就把sigmoid给去了
         # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}')
         # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，KAN后归一化电尺度{kan_emfreq}，sigmoid后{incident_freq_mtx}')
         # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，fc后归一化电尺度{kan_emfreq[0]}，sigmoid后{incident_freq_mtx[0]}')
-        # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，fc后归一化电尺度{Ka_emfreq[0]}')
+        # logger.info(f'物体{in_obj}，频率{in_emfreq}，对数化频率{ln_emfreq}，fc后归一化电尺度{kan_emfreq[0]}')
         # geomtx = (torch.Tensor(geoinfo).unsqueeze(1).expand(-1, area.shape[1], -1)).to(device)
-        #----------------------------入射频率编码---------------------------------------------------
-
 
         #输出torch.Size([2, 20804, 3, 3])  tensor([-0.4463, -0.0323, -0.0037], device='cuda:0') 成功！
         # print(f'Encoder Step000 可删用时：{(time.time()-ticc):.4f}s')
@@ -1022,11 +1011,9 @@ class MeshAutoencoder(Module):
 #--------------------------------------------------------face预处理 得到特征--------------------------------------------------------------------------
         # compute derived features and embed
         # 先对内角、面积、法向量进行离散化和embedding
-        derived_features, EMincvec= get_derived_face_featuresjxt(face_coords, in_em, geoinfo, device, logger, self) #这一步用了2s
+        derived_features= get_derived_face_featuresjxt(face_coords, in_em, geoinfo, device, logger, self) #这一步用了2s
         # print(f'Encoder Step1用时应该已经到头了，时间来自derive里：{(time.time()-ticc):.4f}s')
         # ticc = time.time()
-
-        in_em2 = [in_em1[0],EMincvec,in_em1[3]]
 
         discrete_angle = self.discretize_angle(derived_features['angles'])
         angle_embed = self.angle_embed(discrete_angle)
@@ -1133,23 +1120,8 @@ class MeshAutoencoder(Module):
         face_embed = self.init_sage_conv(face_embed, face_edges) #嵌入从192维变64维。这行把face_embed塞进了self.init_sage_conv = SAGEConv(dim_codebook=192, init_encoder_dim=64, **sageconv_kwargs)在前文实例化了的SAGEConv。做完之后，就是特征卷积聚合，face_embed从192维变成了64维，方便塞进encoder的ini层中。
         face_embed = self.init_encoder_act_and_norm(face_embed) #nn.Sequential是NN层封装容器，封装了两个模块：nn.SiLU()和nn.LayerNorm(init_encoder_dim)。当一个输入传递给self.init_encoder_act_and_norm时，输入首先通过nn.SiLU()（一个激活函数），然后输出被传递到nn.LayerNorm(init_encoder_dim)（一个layer归一化操作）。不会改变矩阵大小，只会改变矩阵值
 
-        # for conv in self.encoders:
-        #     face_embed = conv(face_embed, face_edges) #这中前几个conv里是不是没有ReLU+BatchNorm？和论文里不一样？卷完成了torch.Size([33564, 576])
-        face_embed = self.sage1(face_embed, face_edges)
-        face_embed = F.silu(face_embed)
-        face_embed = self.enLN1(face_embed)
-        
-        face_embed = self.sage2(face_embed, face_edges)
-        face_embed = F.silu(face_embed)
-        face_embed = self.enLN2(face_embed)
-
-        face_embed = self.sage3(face_embed, face_edges)
-        face_embed = F.silu(face_embed)
-        face_embed = self.enLN3(face_embed)
-
-        face_embed = self.sage4(face_embed, face_edges)
-        # face_embed = F.silu(face_embed)
-        # face_embed = self.enLN4(face_embed)
+        for conv in self.encoders:
+            face_embed = conv(face_embed, face_edges) #这中前几个conv里是不是没有ReLU+BatchNorm？和论文里不一样？卷完成了torch.Size([33564, 576])
         # print(f'Encoder Step图卷积用时：{(time.time()-ticc):.4f}s')
         # ticc = time.time()
 
@@ -1169,28 +1141,175 @@ class MeshAutoencoder(Module):
         if not return_face_coordinates:
             return face_embed
 
-        return face_embed, discrete_face_coords, em_embed, in_em2#, in_em_angle_vec
+        return face_embed, discrete_face_coords, em_embed#, in_em_angle_vec
+    
+    # @numba.jit(nopython=True) 
+    @beartype
+    def quantize(
+        self,
+        *,
+        faces: TensorType['b', 'nf', 'nvf', int],
+        face_mask: TensorType['b', 'n', bool],
+        face_embed: TensorType['b', 'nf', 'd', float],
+        pad_id = None,
+        rvq_sample_codebook_temp = 1.
+    ):
+        timeq=time.time()
+        pad_id = default(pad_id, self.pad_id)
+        batch, num_faces, device = *faces.shape[:2], faces.device
 
+        max_vertex_index = faces.amax()
+        num_vertices = int(max_vertex_index.item() + 1)
+
+        face_embed = self.project_dim_codebook(face_embed)
+        face_embed = rearrange(face_embed, 'b nf (nvf d) -> b nf nvf d', nvf = self.num_vertices_per_face)
+
+        vertex_dim = face_embed.shape[-1]
+        vertices = torch.zeros((batch, num_vertices, vertex_dim), device = device)
+
+        # create pad vertex, due to variable lengthed faces
+
+        pad_vertex_id = num_vertices
+        vertices = pad_at_dim(vertices, (0, 1), dim = -2, value = 0.)
+
+        faces = faces.masked_fill(~rearrange(face_mask, 'b n -> b n 1'), pad_vertex_id)
+
+        # prepare for scatter mean
+
+        faces_with_dim = repeat(faces, 'b nf nvf -> b (nf nvf) d', d = vertex_dim)
+
+        face_embed = rearrange(face_embed, 'b ... d -> b (...) d')
+
+        # scatter mean
+
+        averaged_vertices = scatter_mean(vertices, faces_with_dim, face_embed, dim = -2)
+
+        # mask out null vertex token
+
+        mask = torch.ones((batch, num_vertices + 1), device = device, dtype = torch.bool)
+        mask[:, -1] = False
+
+        # rvq specific kwargs
+
+        quantize_kwargs = dict(mask = mask)
+
+        if isinstance(self.quantizer, ResidualVQ):
+            quantize_kwargs.update(sample_codebook_temp = rvq_sample_codebook_temp)
+
+        # a quantize function that makes it memory checkpointable
+
+        def quantize_wrapper_fn(inp):
+            unquantized, quantize_kwargs = inp
+            return self.quantizer(unquantized, **quantize_kwargs)
+
+        # maybe checkpoint the quantize fn
+
+        if self.checkpoint_quantizer:
+            quantize_wrapper_fn = partial(checkpoint, quantize_wrapper_fn, use_reentrant = False)
+
+        # residual VQ
+
+        quantized, codes, commit_loss = quantize_wrapper_fn((averaged_vertices, quantize_kwargs))
+
+        # gather quantized vertexes back to faces for decoding
+        # now the faces have quantized vertices
+
+        face_embed_output = get_at('b [n] d, b nf nvf -> b nf (nvf d)', quantized, faces)
+
+        # vertex codes also need to be gathered to be organized by face sequence
+        # for autoregressive learning
+
+        codes_output = get_at('b [n] q, b nf nvf -> b (nf nvf) q', codes, faces)
+
+        # make sure codes being outputted have this padding
+
+        face_mask = repeat(face_mask, 'b nf -> b (nf nvf) 1', nvf = self.num_vertices_per_face)
+        codes_output = codes_output.masked_fill(~face_mask, self.pad_id)
+
+        # output quantized, codes, as well as commitment loss
+        # print(f'Quantizer用时：{(time.time()-timeq):.4f}s')
+        return face_embed_output, codes_output, commit_loss
+
+    # @numba.jit(nopython=True) 
     @beartype
     def decode( #decoder输入：torchsize(1,33564,576) 长度33564待定，维度576固定
         self,
         x, #原先把xpadding成36000 现在padding成21000 现在padding成32400
         em_embed,#torch.Size([2, 20804, 3, 64]) , torch.Size([2, 20804, 1, 16]) 64*3+16=204
         #in_em_angle_vec #没有离散embedding的入射矢量也拿过来了，怎么用呢
-        in_em,
-        diffusion
     ):
-        # 送进来的x.shape=torch.Size([10, 25000, 576])
-        x = x.view(x.size(0), self.hidden_size, -1)  # torch.Size([10, 576, 25000])
         # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
-        # ------------------------1D Conv+FC-----------------------------
-        x = self.conv1d1(x) #torch.Size([10, 576, 2500])
-        x = x.view(x.size(0), -1, self.hidden_size) #torch.Size([10, 2500, 576])
-        x = self.fcneck(x) #
+        # time0 = time.time()
+        x = torch.cat([x, em_embed], dim=2) #成了576+208=784维了
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
+        pad_size = 22500 - x.size(1)
+        x = F.pad(x, (0, 0, 0, pad_size)) #x.shape=torch.Size([2, 20804, 576])
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
 
-        t = torch.randint(0, diffusion.num_timesteps, (x.shape[0],), device=self.device)
-        x = self.dit(x=x, t=t, in_em=in_em)
-        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])      
+        x = x.view(x.size(0), -1, 22500)  # adjust to match the input shape, 1,576,33564
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
+        
+        # ------------------------1D Conv+FC-----------------------------
+        x = self.conv1d1(x)
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
+
+        
+       
+        x = x.squeeze(1)
+        x = self.kan1(x)
+        x = x.unsqueeze(1)
+        x = self.fc1d1(x)
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2])
+
+        x = x.view(x.size(0), -1, 45, 90)
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+
+        # ------------------------2D upConv------------------------------
+        x = self.upconv1(x)
+        x = self.bn1(x)
+        # x = F.relu(x)
+        x = F.silu(x)
+        x = self.conv1_1(x)
+        x = self.bn1_1(x)
+        # x = F.relu(x)
+        x = F.silu(x)
+        x = self.conv1_2(x)
+        x = self.bn1_2(x)
+        # x = F.relu(x)
+        x = F.silu(x)
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+
+        x = self.upconv2(x)
+        x = self.bn2(x)
+        # x = F.relu(x)
+        x = F.silu(x)
+        x = self.conv2_1(x)
+        x = self.bn2_1(x)
+        # x = F.relu(x)
+        x = F.silu(x)
+        x = self.conv2_2(x)
+        x = self.bn2_2(x)
+        # x = F.relu(x)
+        x = F.silu(x)
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+
+        x = self.upconv3(x)
+        x = self.bn3(x)
+        x = self.conv3_1(x)
+        x = self.bn3_1(x)
+        # x = F.relu(x)
+        x = F.silu(x)
+        x = self.conv3_2(x)
+        x = self.bn3_2(x)
+        # x = F.relu(x)
+        x = F.silu(x)
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+        
+        x = self.conv1x1(x)
+        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+        # x = self.huigui(x)
+
+        x = x[:, :, :, :-1]
         # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
         # print(f'Decodr用时：{(time.time()-time0):.4f}s')
         return x.squeeze(dim=1)
@@ -1214,8 +1333,7 @@ class MeshAutoencoder(Module):
         GT,
         logger,
         device,
-        lgrcs,
-        diffusionplugin
+        lgrcs
     ):
         ticc = time.time()
         # if isinstance(face_edges, str):
@@ -1233,7 +1351,7 @@ class MeshAutoencoder(Module):
 #------------------------------------------------------------------进Encoder---------------------------------------------------------------------------------------------
         '''torch.Size([1, 33564, 3])'''#
         # encoded, face_coordinates, em_embed, in_em_angle_vec = self.encode( #从这儿进encode里 返回的encoded就是那一个跑了一溜SAGEConv得到的face_embed.size = torch.Size([1, 33564, 576]), face_coordinates.shape = torch.Size([1, 33564, 9])是一个面3个点9个坐标点？为啥一个面是tensor([35, 60, 55, 35, 60, 55, 35, 60, 55]) 我知道了因为128^3离散化了
-        encoded, __, em_embed, in_em2 = self.encode( #从这儿进encode里 返回的encoded就是那一个跑了一溜SAGEConv得到的face_embed.size = torch.Size([1, 33564, 576]), face_coordinates.shape = torch.Size([1, 33564, 9])是一个面3个点9个坐标点？为啥一个面是tensor([35, 60, 55, 35, 60, 55, 35, 60, 55]) 我知道了因为128^3离散化了
+        encoded, __, em_embed = self.encode( #从这儿进encode里 返回的encoded就是那一个跑了一溜SAGEConv得到的face_embed.size = torch.Size([1, 33564, 576]), face_coordinates.shape = torch.Size([1, 33564, 9])是一个面3个点9个坐标点？为啥一个面是tensor([35, 60, 55, 35, 60, 55, 35, 60, 55]) 我知道了因为128^3离散化了
             vertices = vertices, #顶点
             faces = faces, #面
             face_edges = face_edges, #图论边
@@ -1269,8 +1387,6 @@ class MeshAutoencoder(Module):
             # quantized, #quantized.shape = torch.Size([1, 33564, 576])
             em_embed,
             #in_em_angle_vec
-            in_em=in_em2,
-            diffusion = diffusionplugin
         )
         # logger.info(f'Decoder用时：{(time.time()-ticc):.4f}s')
         # ticc = time.time()
@@ -1291,10 +1407,7 @@ class MeshAutoencoder(Module):
         else:
             if lgrcs == True:
                 epsilon = 0.001 #防止lg0的鲁棒机制
-                # logger.info(f'初始GT:{GT[0]}')
                 GT = torch.log10(torch.max(GT, torch.tensor(epsilon, device=GT.device))) #只要这里加一行把gt变成lg后的gt就行了。。其他甚至都完全不用改
-                # logger.info(f'lg后GT:{GT[0]}')
-                # logger.info(f'再变回去的GT:{torch.pow(10, GT)[0]}')
                 # GT = torch.pow(10, GT) #反变换在这里
             # print(f'decoded:{decoded.shape},GT:{GT.shape}') #decoded:torch.Size([361, 720]),GT:torch.Size([1, 361, 720])
             # smooth_loss = SmoothLoss()

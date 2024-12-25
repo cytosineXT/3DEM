@@ -1,2 +1,2 @@
-python NNtrain_arg.py --seed 777 --gama 0.0005 --cuda 'cuda:0'
-python NNtrain_arg.py --seed 7 --gama 0.0005 --cuda 'cuda:0'
+python NNtrain_arg.py --seed 77 --gama 0.0005 --cuda 'cuda:0' --trainname 'bb7c_NoPE' --rcsdir '/home/ljm/workspace/datasets/mulbb7c_mie_pretrain' --valdir '/home/ljm/workspace/datasets/mulbb7c_mie_val'
+python NNtrain_arg.py --seed 77 --gama 0.001 --cuda 'cuda:0' --trainname 'bb7c_NoPE' --rcsdir '/home/ljm/workspace/datasets/mulbb7c_mie_pretrain' --valdir '/home/ljm/workspace/datasets/mulbb7c_mie_val'
