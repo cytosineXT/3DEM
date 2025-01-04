@@ -1,2 +1,2 @@
-python NNtrain_arg.py --seed 77 --gama 0.0005 --cuda 'cuda:1' --trainname 'bb7c_NoPENobench' --rcsdir '/home/ljm/workspace/datasets/mulbb7c_mie_pretrain' --valdir '/home/ljm/workspace/datasets/mulbb7c_mie_val'
-python NNtrain_arg.py --seed 77 --gama 0.0005 --cuda 'cuda:1' --trainname 'bb7c_NoPENobench' --rcsdir '/home/ljm/workspace/datasets/mulbb7c_mie_pretrain' --valdir '/home/ljm/workspace/datasets/mulbb7c_mie_val'
+python NNtrain_arg.py --seed 77 --cuda 'cuda:1' --gama 0.0005 --trainname 'bb7c_abNone' --folder 'ablation' --batch 10 --rcsdir '/home/ljm/workspace/datasets/mulbb7c_mie_pretrain' --valdir '/home/ljm/workspace/datasets/mulbb7c_mie_val'
+python NNtrain_arg.py --seed 77 --cuda 'cuda:1' --gama 0 --trainname 'bb7c_abMaxloss' --folder 'ablation' --batch 10 --rcsdir '/home/ljm/workspace/datasets/mulbb7c_mie_pretrain' --valdir '/home/ljm/workspace/datasets/mulbb7c_mie_val'

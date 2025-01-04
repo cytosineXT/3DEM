@@ -1,14 +1,8 @@
-# python NNtrain_arg.py --seed 777 --gama 0.0005 --cuda 'cuda:0'
-#0802会议精神：1.decoder换成Transformer试试，swin-Transformer可能引入不合理的归纳偏置(可能不行 因为361*720对于Transformer来说太长了。。)；2.incident conditioning也要归一化 否则不合理(已完成)；3.AutoEncoder用纯3D训练，decoder再单独训练一个带skip connection的unet decoder(重头戏)；4.学习率调度不要一直起伏，而是用半个cos先大后小这样做；5.定长pooling实现，这样就不用padding了，否则有0还是不合理。
 import torch
 import time
 from tqdm import tqdm
-from net.jxtnet_Transupconv import MeshEncoderDecoder
-# from net.jxtnet_Transupconv_fan import MeshEncoderDecoder
-# from net.jxtnet_pureTrans import MeshEncoderDecoder
+from net.jxtnet_TransGS import MeshEncoderDecoder
 import torch.utils.data.dataloader as DataLoader
-# from torch.nn.parallel import DistributedDataParallel as DDP
-# from torch.nn.parallel import DataParallel as DP
 import os
 import sys
 import re
@@ -17,7 +11,7 @@ import matplotlib.pyplot as plt
 matplotlib.use('agg')
 from pathlib import Path
 from net.utils import increment_path, meshRCSDataset, get_logger, get_model_memory, psnr, ssim, find_matching_files, process_files, get_x_memory#, get_tensor_memory, toc, checksize#, transform_to_log_coordinates
-from NNvalfast import  plot2DRCS, valmain#, plotRCS2
+from NNvalGS import  plot2DRCS, valmain#, plotRCS2
 from pytictoc import TicToc
 t = TicToc()
 t.tic()
@@ -36,24 +30,22 @@ def setup_seed(seed):
 def parse_args():
     parser = argparse.ArgumentParser(description="Script with customizable parameters using argparse.")
     parser.add_argument('--epoch', type=int, default=60, help='Number of training epochs')
-    parser.add_argument('--batch', type=int, default=10, help='batchsize')
     parser.add_argument('--use_preweight', type=bool, default=False, help='Whether to use pretrained weights')
     parser.add_argument('--draw', type=bool, default=True, help='Whether to enable drawing')
 
-    parser.add_argument('--trainname', type=str, default='bb7c', help='logname')
-    parser.add_argument('--folder', type=str, default='test', help='logname')
+    parser.add_argument('--trainname', type=str, default='bb7c_cond', help='logname')
     parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest', help='Path to rcs directory')
     parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest', help='Path to validation directory')
     # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_pretrain', help='Path to rcs directory')
     # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_val', help='Path to validation directory')
-    # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/mul_mie_pretrain', help='Path to rcs directory')
-    # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_val', help='Path to validation directory')
     parser.add_argument('--pretrainweight', type=str, default='/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1129_TransConv_pretrain_b7fd_nofilter/last.pt', help='Path to pretrained weights')
 
     parser.add_argument('--seed', type=int, default=77, help='Random seed for reproducibility')
+    parser.add_argument('--numgs', type=int, default=50, help='GS numbers')
     parser.add_argument('--gama', type=float, default=0.0005, help='Loss threshold or gamma parameter')
-    # parser.add_argument('--cuda', type=str, default='cpu', help='CUDA device to use')
+    parser.add_argument('--lr', type=float, default=0.0001, help='lr')
     parser.add_argument('--cuda', type=str, default='cuda:0', help='CUDA device to use')
+
     return parser.parse_args()
 
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
@@ -80,10 +72,10 @@ seed = args.seed
 gama = args.gama
 cudadevice = args.cuda
 name = args.trainname
-folder = args.folder
-batchsize = args.batch
+numGS = args.numgs
+learning_rate = args.lr
 
-if 'pretrain' in rcsdir:
+if 'pretrain' or 'traintest' in rcsdir:
     mode = 'pretrain'
 else:
     if use_preweight == True:
@@ -95,9 +87,9 @@ setup_seed(seed)
 
 # 其他固定参数
 accumulation_step = 8
-threshold = 20
+threshold = 1
 bestloss = 1
-epoch_mean_loss = 0.0
+epoch_loss1 = 0.0
 in_ems = []
 rcss = []
 cnt = 0
@@ -105,32 +97,26 @@ losses = []  # 用于保存每个epoch的loss值
 psnrs = []
 ssims = []
 mses = []
-nmses, rmses, l1s, percentage_errors = [], [], [], []
 corrupted_files = []
 lgrcs = False
 shuffle = True
 multigpu = False
 alpha = 0.0
-learning_rate = 0.001  # 初始学习率
 lr_time = epoch
+batchsize = 10  # TransUpconv能10 PureTrans只能4
 encoder_layer = 6
 decoder_outdim = 12  # 3S 6M 12L
 paddingsize = 18000
 
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "output" / f"{folder}" /f'{date}_{mode}_{name}_seed{seed}_maxloss{gama}_{cudadevice}_'), exist_ok=False))##
+save_dir = str(increment_path(Path(ROOT / "output" / "test" /f'{date}_GS_{mode}_{name}_seed{seed}_numGS{numGS}_lr{learning_rate}_{cudadevice}_'), exist_ok=False))##
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 lossessavedir = os.path.join(save_dir,'loss.png')
 psnrsavedir = os.path.join(save_dir,'psnr.png')
 ssimsavedir = os.path.join(save_dir,'ssim.png')
 msesavedir = os.path.join(save_dir,'mse.png')
-nmsesavedir = os.path.join(save_dir,'nmse.png')
-rmsesavedir = os.path.join(save_dir,'rmse.png')
-l1savedir = os.path.join(save_dir,'l1.png')
-percentage_errorsavedir = os.path.join(save_dir,'percentage_error.png')
-allinonesavedir = os.path.join(save_dir,'allinone.png')
 logdir = os.path.join(save_dir,'log.txt')
 logger = get_logger(logdir)
 # logger.info(f'使用net.jxtnet_pureTrans')
@@ -175,7 +161,8 @@ autoencoder = MeshEncoderDecoder( #这里实例化，是进去跑了init 草 但
     paddingsize = paddingsize,
     decoder_outdim = decoder_outdim, #决定了decoder的size 12L 6M 3S
     encoder_layer = encoder_layer, #决定了encoder的层数
-    alpha = alpha
+    alpha = alpha,
+    num_gaussians = numGS,
 )
 get_model_memory(autoencoder,logger)
 
@@ -191,15 +178,20 @@ optimizer = torch.optim.Adam(autoencoder.parameters(), lr=learning_rate, weight_
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=lr_time)# CosineAnnealingLR使用余弦函数调整学习率，可以更平滑地调整学习率
 
 # t.toc('代码准备时间',restart=True)
+
 flag = 1
 GTflag = 1
 for i in range(epoch):
-    psnr_list, ssim_list, mse_list, nmse_list, rmse_list, l1_list, percentage_error_list = [], [], [], [], [], [], []
+    psnr_list = []
+    ssim_list = []
+    mse_list = []
     jj=0
     logger.info('\n')
-    epoch_loss = []
+    epoch_loss = 0.
+    # tqdm.write(f'epoch:{i+1}')
     timeepoch = time.time()
-    for in_em1,rcs1 in tqdm(dataloader,desc=f'epoch:{i+1},train进度,lr={scheduler.get_last_lr()[0]:.5f}',ncols=130,postfix=f'上一轮的epoch:{i},loss_mean:{(epoch_mean_loss):.4f}'):
+    # for in_em1,rcs1 in tqdm(dataloader,desc=f'epoch:{i+1},train进度',ncols=130,postfix=f'上一轮的epoch:{i},loss_mean:{(epoch_loss1/dataset.__len__()):.4f}'):
+    for in_em1,rcs1 in tqdm(dataloader,desc=f'epoch:{i+1},train进度,lr={scheduler.get_last_lr()[0]:.5f}',ncols=130,postfix=f'上一轮的epoch:{i},loss_mean:{(epoch_loss1/dataset.__len__()):.4f}'):
         # print('-->')
         # t.toc('刚进循环',restart=True)
         
@@ -213,7 +205,7 @@ for i in range(epoch):
         # tic=toc(tic)
         
         # t.toc('循环内准备时间',restart=True)
-        loss, outrcs, psnr_mean, _, ssim_mean, _, mse, nmse, rmse, l1, percentage_error = autoencoder( #这里使用网络，是进去跑了forward 
+        loss, outrcs, psnr_mean, _, ssim_mean, _, mse_mean,_ = autoencoder( #这里使用网络，是进去跑了forward 
             vertices = planesur_verts,
             faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
             geoinfo = geoinfo, #[area, volume, scale]
@@ -227,24 +219,22 @@ for i in range(epoch):
         # print('--推理总时长:')
         # tic=toc(tic)
         # t.toc('推理时间',restart=True)
-        
         if lgrcs == True:
             outrcslg = outrcs
             outrcs = torch.pow(10, outrcs)
         if batchsize > 1:
             # tqdm.write(f'loss:{loss.tolist()}')
-            lossback=loss.mean() / accumulation_step #loss.sum()改成loss.mean()
-            lossback.backward() #这一步很花时间，但是没加optimizer是白给的 #优化loss反传机制2025年1月2日13:48:48
+            loss=loss.mean() / accumulation_step #loss.sum()改成loss.mean()
+            loss.backward() #这一步很花时间，但是没加optimizer是白给的
             # print('--loss.backward：')
             # tic=toc(tic)
         else:
             outem = [int(in_em1[1]), int(in_em1[2]), float(f'{in_em1[3].item():.3f}')]
             tqdm.write(f'em:{outem},loss:{loss.item():.4f}')
-            lossback=loss / accumulation_step
-            lossback.backward()
+            loss=loss / accumulation_step
+            loss.backward()
         # t.toc('loss反传时间',restart=True)
-        epoch_loss.append(loss.item())
-
+        epoch_loss=epoch_loss + loss.item()
         torch.nn.utils.clip_grad_norm_(autoencoder.parameters(), max_norm=threshold)
         # optimizer.step()
         if (jj) % accumulation_step == 0 or (jj) == len(dataloader):
@@ -255,11 +245,7 @@ for i in range(epoch):
         # torch.cuda.empty_cache()
         psnr_list.append(psnr_mean)
         ssim_list.append(ssim_mean)
-        mse_list.append(mse)
-        nmse_list.append(nmse)
-        rmse_list.append(rmse)
-        l1_list.append(l1)
-        percentage_error_list.append(percentage_error)
+        mse_list.append(mse_mean)
         
     #-----------------------------------定期作图看效果小模块-------------------------------------------
         in_em0[1:] = [tensor.to(device) for tensor in in_em0[1:]]
@@ -293,32 +279,23 @@ for i in range(epoch):
         plot2DRCS(rcs=drawGT.squeeze(), savedir=out2DGTpngpath, logger=logger,cutmax=None)
         GTflag = 0
         logger.info('已画GT图')
-    if i == 0 or i % 10 == 0: #存指定倍数轮时画某张图看训练效果
+    if i == 0 or i % 1 == 0: #存指定倍数轮时画某张图看训练效果
         outrcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}.png')
         out2Drcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}_psnr{p.item():.2f}_ssim{s.item():.4f}_mse{m:.4f}_2D.png')
         # plotRCS2(rcs=drawrcs, savedir=outrcspngpath, logger=logger)
         plot2DRCS(rcs=drawrcs.squeeze(), savedir=out2Drcspngpath, logger=logger,cutmax=None)
         logger.info(f'已画{i}轮图')
 
-    epoch_mean_loss = sum(epoch_loss)/len(epoch_loss)
+    epoch_loss1 = epoch_loss
+    epoch_mean_loss = epoch_loss1/dataset.__len__()
     losses.append(epoch_mean_loss)  # 保存当前epoch的loss以备绘图
 
     epoch_psnr = sum(psnr_list)/len(psnr_list) #这个应该每轮清零的
     epoch_ssim = sum(ssim_list)/len(ssim_list)
     epoch_mse = sum(mse_list)/len(mse_list)
-    epoch_nmse = sum(nmse_list)/len(nmse_list)
-    epoch_rmse = sum(rmse_list)/len(rmse_list)
-    epoch_l1 = sum(l1_list)/len(l1_list)
-    epoch_percentage_error = sum(percentage_error_list)/len(percentage_error_list)
     psnrs.append(epoch_psnr) #这个不是每轮清零，是和轮数长度一样的用于作图的
     ssims.append(epoch_ssim)
     mses.append(epoch_mse)
-    nmses.append(epoch_nmse)
-    rmses.append(epoch_rmse)
-    l1s.append(epoch_l1)
-    percentage_errors.append(epoch_percentage_error)
-
-
 
     if bestloss > epoch_mean_loss:
         bestloss = epoch_mean_loss
@@ -366,61 +343,14 @@ for i in range(epoch):
     plt.title('Training MSE Curve')
     plt.savefig(msesavedir)
     plt.close()
-
-    plt.clf()
-    plt.plot(range(0, i+1), nmses)
-    plt.xlabel('Epoch')
-    plt.ylabel('NMSE')
-    plt.title('Training NMSE Curve')
-    plt.savefig(nmsesavedir)
-    plt.close()
-
-    plt.clf()
-    plt.plot(range(0, i+1), rmses)
-    plt.xlabel('Epoch')
-    plt.ylabel('RMSE')
-    plt.title('Training RMSE Curve')
-    plt.savefig(rmsesavedir)
-    plt.close()
-
-    plt.clf()
-    plt.plot(range(0, i+1), l1s)
-    plt.xlabel('Epoch')
-    plt.ylabel('L1')
-    plt.title('Training L1 Curve')
-    plt.savefig(l1savedir)
-    plt.close()
-
-    plt.clf()
-    plt.plot(range(0, i+1), percentage_errors)
-    plt.xlabel('Epoch')
-    plt.ylabel('Percentage Error')
-    plt.title('Training Percentage Error Curve')
-    plt.savefig(percentage_errorsavedir)
-    plt.close()
-
-    plt.clf() 
-    plt.plot(range(0, i+1), losses, label='Loss', color='black')
-    plt.plot(range(0, i+1), mses, label='MSE', color='blue')
-    # plt.plot(range(0, i+1), nmses, label='NMSE', color='orange')
-    plt.plot(range(0, i+1), rmses, label='RMSE', color='green')
-    plt.plot(range(0, i+1), l1s, label='L1', color='red')
-    # plt.plot(range(0, i+1), percentage_errors, label='Percentage Error', color='purple')
-    plt.xlabel('Epoch')
-    plt.ylabel('Error')
-    plt.title('Training Error Curves')
-    plt.legend()
-    plt.savefig(allinonesavedir)
-    plt.close()
-
     # plt.show()
     if mode == "pretrain":
         if (i+1) % 20 == 0 or i == -1: #存指定倍数轮的checkpoint
         # if (i+1) % 1 == 0 or i == -1: #存指定倍数轮的checkpoint
-            valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+            valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize, num_gaussians = numGS)
     else :
         if (i+1) % 1 == 0 or i == -1: #存指定倍数轮的checkpoint
-            valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+            valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize, num_gaussians = numGS)
 
 logger.info(f"损坏的文件：{corrupted_files}")
 logger.info(f'训练结束时间：{time.strftime("%Y-%m-%d %H:%M:%S",time.localtime(time.time()))}')

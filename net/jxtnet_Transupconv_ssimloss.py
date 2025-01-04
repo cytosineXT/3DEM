@@ -15,7 +15,9 @@ from beartype.typing import Tuple
 from einops import rearrange, pack
 from einops.layers.torch import Rearrange
 
-from net.utils import transform_to_log_coordinates, psnr, ssim, toc, checksize
+from net.utils import transform_to_log_coordinates, psnr, toc, checksize
+# from net.utils import transform_to_log_coordinates, psnr, ssim, toc, checksize
+from pytorch_msssim import ssim, ms_ssim #不行啊 这个要提前输入datarange，但是我不能提前知道datarange，除非像他一样提前归一化？
 import numpy as np
 from net.mytransformer import PositionalEncoding,TransformerWithPooling
 # from net.myswinunet import SwinTransformerSys
@@ -390,7 +392,7 @@ class MeshEncoderDecoder(Module):
         #----------------------------------------------------jxt encoder----------------------------------------------------------
         self.discretize_face_coords = partial(discretize, num_discrete = num_discrete_coors, continuous_range = coor_continuous_range) #partial是用来把某个已经定义的函数固定一部分参数做成新的函数，这里就是针对face坐标，把descretize离散化函数定制成针对face坐标的离散化函数，方便后面调用discretize_face_coords可以少写几个参数减少出错且更简洁。
         #self居然也可以存函数 我还以为只能存数据或者实例
-        self.coor_embed = nn.Embedding(num_discrete_coors, dim_coor_embed) #这里还只是实例化了，离散embedding数是num_discrete_coors = 512， 每个embedding的维度是dim_coor_embed = 64 后续会在encoder中使用
+        self.coor_embed = nn.Embedding(num_discrete_coors, dim_coor_embed) #这里还只是实例化了，离散embedding数是num_discrete_coors = 128， 每个embedding的维度是dim_coor_embed = 64 后续会在encoder中使用
 
         self.discretize_angle = partial(discretize, num_discrete = num_discrete_angle, continuous_range = (0., pi))
         self.angle_embed = nn.Embedding(num_discrete_angle, dim_angle_embed)
@@ -486,15 +488,15 @@ class MeshEncoderDecoder(Module):
         self.incident_angle_linear1 = nn.Linear(2, 96*int(self.paddingsize/(2**encoder_layer)))
         # self.sig1 = nn.Sigmoid()
         # self.sig2 = nn.Sigmoid()
-        # self.incident_freq_linear1 = nn.Linear(1, 96*int(self.paddingsize/(2**encoder_layer)))
+        self.incident_freq_linear1 = nn.Linear(1, 96*int(self.paddingsize/(2**encoder_layer)))
         # self.incident_freq_linear1 = nn.Sequential(
         #         nn.Linear(1, 8),
         #         nn.SiLU(),
         #         nn.Linear(8,int(self.paddingsize/(2**encoder_layer)))).to(device)
         self.incident_angle_linear2 = nn.Linear(2, decoder_outdim*8*45*90)
-        # self.incident_freq_linear2 = nn.Linear(1, decoder_outdim*8*45*90)
-        # self.freqfan1 = FANLayer(1, int(self.paddingsize/(2**encoder_layer))*96, with_gate=True)
-        # self.freqfan2 = FANLayer(1, decoder_outdim*8*45*90, with_gate=True)
+        self.incident_freq_linear2 = nn.Linear(1, decoder_outdim*8*45*90)
+        self.freqfan1 = FANLayer(1, int(self.paddingsize/(2**encoder_layer))*96, with_gate=True)
+        self.freqfan2 = FANLayer(1, decoder_outdim*8*45*90, with_gate=True)
         # self.incident_freq_linear2 = nn.Sequential(
         #         nn.Linear(1, 8),
         #         nn.SiLU(),
@@ -627,7 +629,7 @@ class MeshEncoderDecoder(Module):
         face_embed = face_embed.reshape(-1,face_embed.shape[0],face_embed.shape[-1])#从(1,25000,576)变成(25000,1,576)
         '''(L B C)'''
         checksize(face_embed)
-        face_embed = self.pe(face_embed)
+        # face_embed = self.pe(face_embed)
         face_embed = self.transformer_model(face_embed)
         face_embed = face_embed.reshape(-1,face_embed.shape[0],face_embed.shape[-1])#从(25000,1,576)变回(1,25000,576)
 
@@ -750,7 +752,7 @@ class MeshEncoderDecoder(Module):
         faces:          TensorType['b', 'nf', 'nvf', int],
         geoinfo,
         in_em,
-        GT=None,
+        GT,
         logger=None,
         device='cpu',
         lgrcs=False,
@@ -813,7 +815,7 @@ class MeshEncoderDecoder(Module):
                 # GT = torch.pow(10, GT) #反变换在这里
             #------------------------------------------------------------------------
             TVL1loss = TVL1Loss(beta=1.0,gama=gama) #我草 发现一个错误  pixel_dif1 = images[1:, :, :] - images[:-1, :, :] 但是GT.shape = torch.Size([1, 360, 720])，第一项是batchsize。。。
-            loss = TVL1loss(decoded,GT) #/(GT.shape[0]) #平均了batch的loss 不需要手动平均。。自动会平均的
+            loss = TVL1loss(decoded,GT)/(GT.shape[0]) #平均了batch的loss
             # print('TVL1loss:')
             # tic = toc(tic)
             
@@ -839,16 +841,14 @@ class MeshEncoderDecoder(Module):
             # mean_mse =  F.mse loss(decoded, GT, reduction='mean')
             # mseloss = nn.MSELoss(reduction='mean')
             # with torch.no_grad():
-                minus = decoded - GT
-                mse = ((minus) ** 2).sum() / GT.numel()
-                nmse = mse / torch.var(GT)
-                rmse = torch.sqrt(mse)
-                l1 = (decoded-GT).abs().mean()
-                percentage_error = (minus / (GT + 1e-8)).abs().mean() * 100
+                mean_mse = ((decoded-GT) ** 2).sum() / GT.numel()
+
+                gt_variance = torch.var(GT)
+                mean_nmse = mean_mse / gt_variance
 
             # logger.info(f"PSNR: {psnr_list} , Mean PSNR: {mean_psnr:.2f}, SSIM: {ssim_list}, Mean SSIM: {mean_ssim:.4f}")
             # print('mean_mse:')
             # tic = toc(tic) #耗时2.0270s
             # t.toc('  后处理',restart=True)
             # return loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse
-            return total_loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mse, nmse, rmse, l1, percentage_error
+            return total_loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse, mean_nmse

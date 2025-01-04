@@ -8,3 +8,7 @@
 *.sh
 gpu0.sh
 gpu1.sh
+/planes9
+*.pt
+2346p2004.pt
+*/planes9

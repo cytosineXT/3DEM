@@ -27,6 +27,7 @@ jupyter
 pytictoc
 plotly
 kaleido
+pytorch-msssim
 #"/home/jiangxiaotian/anaconda3/envs/jxtnet2/lib/python3.9/site-packages/torch/_tensor.py", line 1087
 
         # if dtype is None:

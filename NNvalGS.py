@@ -1,10 +1,6 @@
 import torch
 import time
-# from net.jxtnet_Transupconv_fan import MeshEncoderDecoder
-from net.jxtnet_Transupconv import MeshEncoderDecoder
-# from net.jxtnet_Transupconv_ssimloss import MeshEncoderDecoder
-# from net.jxtnet_Transupconv import MeshEncoderDecoder
-# from net.jxtnet_pureTrans import MeshEncoderDecoder
+from net.jxtnet_TransGS import MeshEncoderDecoder
 from net.utils import increment_path, meshRCSDataset, get_logger, find_matching_files, process_files
 import torch.utils.data.dataloader as DataLoader
 # import trimesh
@@ -208,9 +204,9 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, nmse_list, statisticdir):
     plt.figure(figsize=(12, 6))
 
     #-----------------------------------mse-------------------------------------------
-    mse_threshold = 2
-    mse_list = [m for m in mse_list if m <= mse_threshold]
-    print(len(mse_list))
+    # mse_threshold = 2
+    # mse_list = [m for m in mse_list if m <= mse_threshold]
+    # print(len(mse_list))
     # MSE 直方图和正态分布曲线
     plt.subplot(3, 3, 1)
     # counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True, stacked=True)
@@ -274,7 +270,7 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, nmse_list, statisticdir):
     plt.close()
 
 
-def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, trainval=False, draw3d=False,lgrcs=True,decoder_outdim=3,encoder_layer=6,paddingsize=18000):
+def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, trainval=False, draw3d=False,lgrcs=True,decoder_outdim=3,encoder_layer=6,paddingsize=18000, num_gaussians = 50):
     tic = time.time()
     # pngsavedir = os.path.join(save_dir,'0508_bbc6_theta90phi330freq0.9_4w_sm.png')
     if trainval == False:
@@ -313,7 +309,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
     if trainval == False:
         logger.info(f'device:{device}')
 
-    autoencoder = MeshEncoderDecoder(num_discrete_coors = 128,decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize).to(device) #这里实例化，是进去跑了init
+    autoencoder = MeshEncoderDecoder(num_discrete_coors = 128,decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,num_gaussians=num_gaussians).to(device) #这里实例化，是进去跑了init
     autoencoder.load_state_dict(torch.load(weight), strict=False)
     # autoencoder = autoencoder.to(device)
     #-------------------------------------------------------------------------------------
@@ -324,7 +320,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
             planesur_faces, planesur_verts, planesur_faceedges, geoinfo = process_files(objlist, device)
 
             start_time0 = time.time()
-            loss, outrcs, _, psnrlist, _, ssimlist, mse, nmse, rmse, l1, percentage_error = autoencoder( #这里使用网络，是进去跑了forward
+            loss, outrcs, _, psnrlist, _, ssimlist, mse, nmse = autoencoder( #这里使用网络，是进去跑了forward
                 vertices = planesur_verts,
                 faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
                 # face_edges = planesur_faceedges,
@@ -398,9 +394,9 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
 if __name__ == '__main__':
 
     trainval = False
-    cuda = 'cuda:1'
+    cuda = 'cuda:0'
     draw = True
-    # draw = False
+    draw = False
     draw3d = False
     # draw3d = True
     lgrcs = False
@@ -411,14 +407,14 @@ if __name__ == '__main__':
 
     # weight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/mul2347last1886.pt'
     # weight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/mul2347psnr1942ssim7328.pt'
-    weight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/2346p2004.pt'
+    weight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1218_finetune_bb7ctrain50_seed77777_maxloss0.0005_cuda:1_/last.pt'
 
-    rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pba0f_mie_val'
+    # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pba0f_mie_val'
     # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pbaa9_mie_val'
     # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pbb7d_mie_val'
     # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pbbc6_mie_val'
     # rcsdir = r'/home/ljm/workspace/datasets/bb7c_smallval'
-    # rcsdir = r'/home/ljm/workspace/datasets/mulbb7c_mie_val'
+    rcsdir = r'/home/ljm/workspace/datasets/mulbb7c_mie_val'
     # rcsdir = r'/home/ljm/workspace/datasets/mulb979_mie_val'
     # rcsdir = r'/home/ljm/workspace/datasets/mulb7fd_mie_val'
     # rcsdir = r'/home/ljm/workspace/datasets/mul2_mie_val'
@@ -426,7 +422,7 @@ if __name__ == '__main__':
 
     from datetime import datetime
     date = datetime.today().strftime("%m%d")
-    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /f'{date}_mul2346train50p'), exist_ok=False))
+    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /f'{date}_TransConv_bb7c50p_inftime'), exist_ok=False))
     logdir = os.path.join(save_dir,'alog.txt')
     logger = get_logger(logdir)
     epoch = -1
