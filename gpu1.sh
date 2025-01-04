@@ -1,2 +1,1 @@
-python NNtrain_arg.py --seed 7777 --gama 0.0005 --cuda 'cuda:1'
-python NNtrain_arg.py --seed 77777 --gama 0.0005 --cuda 'cuda:1'
+python NNtrain_arg.py --seed 77 --gama 0.0005 --cuda 'cuda:1' --trainname 'mul2346' --rcsdir '/home/jiangxiaotian/datasets/mul2346_mie_train' --valdir '/home/jiangxiaotian/datasets/mul2346_mie_val7' --pretrainweight '/home/jiangxiaotian/workspace/3DEM/output/train/1216_pretrain_mul2346_seed77_maxloss0.0005_cuda:0_p1827s7049/last.pt' --use_preweight True

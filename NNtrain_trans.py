@@ -69,16 +69,13 @@ shuffle = True
 # shuffle = False
 multigpu = False 
 
-# rcsdir = r'/home/ljm/workspace/datasets/mul2_mie_pretrain' #T7920 Liang
-# rcsdir = r'/home/ljm/workspace/datasets/mulb979_mie_pretrain' #T7920 Liang
-rcsdir = r'/home/ljm/workspace/datasets/mulbb7c_mie_pretrain' #T7920 Liang
-# rcsdir = r'/home/ljm/workspace/datasets/traintest' #T7920 Liang
-# valdir = r'/home/ljm/workspace/datasets/mul2_mie_val'
-# valdir = r'/home/ljm/workspace/datasets/mulb979_mie_val'
-valdir = r'/home/ljm/workspace/datasets/mulbb7c_mie_val'
+rcsdir = r'/home/jiangxiaotian/datasets/mul2347_mie_train' # Liang
+valdir = r'/home/jiangxiaotian/datasets/mul2347_mie_6smallval' # Liang
+# rcsdir = r'/home/ljm/workspace/datasets/mulbb7c_mie_pretrain'
+# valdir = r'/home/ljm/workspace/datasets/mulbb7c_mie_val'
 # valdir = r'/home/ljm/workspace/datasets/traintest'
-# pretrainweight = r'./output/train/1103_transconv_pretrain_0.0alpha/last.pt' #T7920
-pretrainweight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1129_TransConv_pretrain_b7fd_nofilter/last.pt' #T7920
+# pretrainweight = r'./output/train/1103_transconv_pretrain_0.0alpha/last.pt'
+pretrainweight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1129_TransConv_pretrain_b7fd_nofilter/last.pt'
 
 seed = 777
 setup_seed(seed)

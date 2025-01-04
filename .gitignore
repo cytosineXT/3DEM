@@ -5,3 +5,6 @@
 *.png
 # *.txt
 */ShapeNet1
+*.sh
+gpu0.sh
+gpu1.sh

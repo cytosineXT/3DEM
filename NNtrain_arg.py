@@ -39,12 +39,15 @@ def parse_args():
     parser.add_argument('--use_preweight', type=bool, default=False, help='Whether to use pretrained weights')
     parser.add_argument('--draw', type=bool, default=True, help='Whether to enable drawing')
 
-    parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_pretrain', help='Path to rcs directory')
-    parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_val', help='Path to validation directory')
+    parser.add_argument('--trainname', type=str, default='mul2347', help='logname')
+    parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/mul2347_mie_pretrain', help='Path to rcs directory') #liang
+    parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/mul2347_mie_6smallval', help='Path to validation directory') #liang
+    # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_pretrain', help='Path to rcs directory')
+    # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_val', help='Path to validation directory')
     parser.add_argument('--pretrainweight', type=str, default='/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1129_TransConv_pretrain_b7fd_nofilter/last.pt', help='Path to pretrained weights')
 
-    parser.add_argument('--seed', type=int, default=777, help='Random seed for reproducibility')
-    parser.add_argument('--gama', type=float, default=0.001, help='Loss threshold or gamma parameter')
+    parser.add_argument('--seed', type=int, default=77, help='Random seed for reproducibility')
+    parser.add_argument('--gama', type=float, default=0.0005, help='Loss threshold or gamma parameter')
     parser.add_argument('--cuda', type=str, default='cuda:1', help='CUDA device to use')
     return parser.parse_args()
 
@@ -71,6 +74,7 @@ pretrainweight = args.pretrainweight
 seed = args.seed
 gama = args.gama
 cudadevice = args.cuda
+name = args.trainname
 
 if 'pretrain' in rcsdir:
     mode = 'pretrain'
@@ -86,6 +90,7 @@ setup_seed(seed)
 accumulation_step = 8
 threshold = 20
 bestloss = 1
+maxpsnr = 1
 epoch_loss1 = 0.0
 in_ems = []
 rcss = []
@@ -108,9 +113,10 @@ paddingsize = 18000
 
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "output" / "train" /f'{date}_{mode}_bb7c_seed{seed}_maxloss{gama}_{cudadevice}_'), exist_ok=False))##
+save_dir = str(increment_path(Path(ROOT / "output" / "train" /f'{date}_{mode}_{name}_seed{seed}_maxloss{gama}_{cudadevice}_'), exist_ok=False))##
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
+maxsavedir = os.path.join(save_dir,'maxp.pt')
 lossessavedir = os.path.join(save_dir,'loss.png')
 psnrsavedir = os.path.join(save_dir,'psnr.png')
 ssimsavedir = os.path.join(save_dir,'ssim.png')
@@ -345,10 +351,13 @@ for i in range(epoch):
     if mode == "pretrain":
         if (i+1) % 20 == 0 or i == -1: #存指定倍数轮的checkpoint
         # if (i+1) % 1 == 0 or i == -1: #存指定倍数轮的checkpoint
-            valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+            valpsnr=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
     else :
         if (i+1) % 1 == 0 or i == -1: #存指定倍数轮的checkpoint
-            valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+            valpsnr=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+    if maxpsnr < valpsnr:
+        maxpsnr = valpsnr
+        torch.save(autoencoder.state_dict(), maxsavedir)
 
 logger.info(f"损坏的文件：{corrupted_files}")
 logger.info(f'训练结束时间：{time.strftime("%Y-%m-%d %H:%M:%S",time.localtime(time.time()))}')
