@@ -18,7 +18,7 @@ from einops.layers.torch import Rearrange
 from net.utils import transform_to_log_coordinates, psnr, ssim, toc, checksize
 import numpy as np
 from net.mytransformer import PositionalEncoding,TransformerWithPooling
-# from net.myswinunet import SwinTransformerSys
+from net.myswinunet import SwinTransformerSys
 from pytictoc import TicToc
 import trimesh
 import glob
@@ -81,18 +81,20 @@ class TVL1Loss(nn.Module): # maxloss!
 
     def forward(self, decoded, GT):
         # Calculate the MSE loss
-        L1_loss = nn.L1Loss(reduction='mean')
+        # L1_loss = nn.L1Loss(reduction='mean')
         # L1_loss = nn.MSELoss(reduction='mean')
-        # L1_loss = nn.L1Loss(reduction='sum')
+        L1_loss = nn.L1Loss(reduction='sum')
         loss_L1 = L1_loss(decoded, GT)
+        if torch.isnan(loss_L1) or torch.isinf(loss_L1):
+            raise NameError("Loss became NaN or Inf, stopping training.")
         tvloss = total_variation(decoded)
         maxloss = torch.mean(torch.abs(torch.amax(decoded, dim=(1, 2)) - torch.amax(GT, dim=(1, 2))))
         # logger.info(f" tvloss:{tvloss*self.beta:.4f}, L1loss:{loss_L1:.4f}")
         # print(f"L1={loss_L1:.4f},TV={tvloss:.4f},max={maxloss:.4f}")
         total_loss = loss_L1 + tvloss * self.beta + maxloss * self.gama
         # print(f'l1loss:{loss_L1},tvloss:{tvloss},totalloss:{total_loss}')
-        return total_loss
-        # return loss_L1
+        # return total_loss
+        return loss_L1
 
 # Convert spherical coordinates to cartesian
 def spherical_to_cartesian(theta, phi, device="cpu"):
@@ -379,6 +381,7 @@ class MeshEncoderDecoder(Module):
         paddingsize = 22500,
         encoder_layer = 6,
         alpha = 0.0,
+        num_gaussians = 100,
         
     ): #我草 这里面能调的参也太NM多了吧 这炼丹能练死人
         super().__init__()
@@ -390,7 +393,7 @@ class MeshEncoderDecoder(Module):
         #----------------------------------------------------jxt encoder----------------------------------------------------------
         self.discretize_face_coords = partial(discretize, num_discrete = num_discrete_coors, continuous_range = coor_continuous_range) #partial是用来把某个已经定义的函数固定一部分参数做成新的函数，这里就是针对face坐标，把descretize离散化函数定制成针对face坐标的离散化函数，方便后面调用discretize_face_coords可以少写几个参数减少出错且更简洁。
         #self居然也可以存函数 我还以为只能存数据或者实例
-        self.coor_embed = nn.Embedding(num_discrete_coors, dim_coor_embed) #这里还只是实例化了，离散embedding数是num_discrete_coors = 512， 每个embedding的维度是dim_coor_embed = 64 后续会在encoder中使用
+        self.coor_embed = nn.Embedding(num_discrete_coors, dim_coor_embed) #这里还只是实例化了，离散embedding数是num_discrete_coors = 128， 每个embedding的维度是dim_coor_embed = 64 后续会在encoder中使用
 
         self.discretize_angle = partial(discretize, num_discrete = num_discrete_angle, continuous_range = (0., pi))
         self.angle_embed = nn.Embedding(num_discrete_angle, dim_angle_embed)
@@ -411,8 +414,6 @@ class MeshEncoderDecoder(Module):
         #感觉还是要离散化一下，现在直接用mlp做嵌入学不到东西。2024年9月21日20:02:05 
         self.discretize_emfreq = partial(discretize, num_discrete = num_discrete_emfreq, continuous_range = (0.,1.0)) #2024年5月11日15:28:15我草 是不是没必要离散，这个情况，是不是其实我的freq本身其实就已经离散的了，不用我再人为离散化一次？只是embedding的时候他映射到embedding空间之后，隐含的空间关系就能实现我“连续回归”的目的？而且280个点离散到128个离散值，本身就有问题吧你妈的
         self.emfreq_embed = nn.Embedding(num_discrete_emfreq, dim_emfreq_embed) #jxt
-        self.emfreq_embed1 = nn.Embedding(num_discrete_emfreq, 96*int(self.paddingsize/(2**encoder_layer))) #jxt
-        self.emfreq_embed2 = nn.Embedding(num_discrete_emfreq, decoder_outdim*8*45*90) #jxt
 
         #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
 
@@ -450,12 +451,26 @@ class MeshEncoderDecoder(Module):
         #         nn.Linear(int(self.paddingsize/(2**encoder_layer)), decoder_outdim*8*45*90),#388800
         #         nn.LayerNorm(decoder_outdim*8*45*90)).to(device)
         
-        self.conv1d1 = nn.Conv1d(576, decoder_outdim*8, kernel_size=1, stride=1, dilation=1 ,padding=0).to(device) #[351,576]-[351,96]
-        self.fc1d1 = nn.Sequential(
-                nn.Linear(int(self.paddingsize/(2**encoder_layer)), int(self.paddingsize/(2**encoder_layer))),
-                nn.SiLU(),
-                nn.Linear(int(self.paddingsize/(2**encoder_layer)), 45*90),#4050
-                nn.LayerNorm(45*90)).to(device) #[351,96]-[45*90,96]
+        # self.conv1d1 = nn.Conv1d(576, decoder_outdim*8, kernel_size=1, stride=1, dilation=1 ,padding=0).to(device) #[351,576]-[351,96]
+        # self.fc1d1 = nn.Sequential(
+        #         nn.Linear(int(self.paddingsize/(2**encoder_layer)), int(self.paddingsize/(2**encoder_layer))),
+        #         nn.SiLU(),
+        #         nn.Linear(int(self.paddingsize/(2**encoder_layer)), 45*90),#4050
+        #         nn.LayerNorm(45*90)).to(device) #[351,96]-[45*90,96]
+        self.num_gaussians = num_gaussians
+        self.conv1d1 = nn.Conv1d(576, 12, kernel_size=1, stride=1, dilation=1 ,padding=0) #[351,576]-[351,96]
+        # MLP to generate Gaussian parameters
+        self.GSmlp = nn.Sequential(
+            nn.Linear(int(self.paddingsize/(2**encoder_layer))*12, 512),  # Input -> hidden layer 0.30G
+            nn.ReLU(),
+            nn.Linear(512, 256),       # Hidden -> hidden
+            nn.ReLU(),
+            nn.Linear(256, num_gaussians * 6)  # Hidden -> Gaussian parameters
+        )
+        for layer in self.GSmlp:
+            if isinstance(layer, nn.Linear):
+                nn.init.xavier_uniform_(layer.weight)
+
         
         # decoder_outdim*8 = 64
         # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
@@ -483,22 +498,20 @@ class MeshEncoderDecoder(Module):
 
 
         # self.swinunet = SwinTransformerSys(embed_dim=decoder_outdim,window_size=9).to(device) #我给的是这个 其他都是自己算出来的
-        self.incident_angle_linear1 = nn.Linear(2, 96*int(self.paddingsize/(2**encoder_layer)))
-        # self.sig1 = nn.Sigmoid()
-        # self.sig2 = nn.Sigmoid()
-        # self.incident_freq_linear1 = nn.Linear(1, 96*int(self.paddingsize/(2**encoder_layer)))
+        self.incident_angle_linear1 = nn.Linear(2, 12*int(self.paddingsize/(2**encoder_layer)))
+        # self.incident_freq_linear1 = nn.Linear(1, 12*int(self.paddingsize/(2**encoder_layer)))
         # self.incident_freq_linear1 = nn.Sequential(
         #         nn.Linear(1, 8),
         #         nn.SiLU(),
         #         nn.Linear(8,int(self.paddingsize/(2**encoder_layer)))).to(device)
-        self.incident_angle_linear2 = nn.Linear(2, decoder_outdim*8*45*90)
+        self.incident_angle_linear2 = nn.Linear(2, num_gaussians * 6)
         # self.incident_freq_linear2 = nn.Linear(1, decoder_outdim*8*45*90)
-        # self.freqfan1 = FANLayer(1, int(self.paddingsize/(2**encoder_layer))*96, with_gate=True)
-        # self.freqfan2 = FANLayer(1, decoder_outdim*8*45*90, with_gate=True)
         # self.incident_freq_linear2 = nn.Sequential(
         #         nn.Linear(1, 8),
         #         nn.SiLU(),
         #         nn.Linear(8,decoder_outdim*8*45*90)).to(device)
+        self.emfreq_embed1 = nn.Embedding(num_discrete_emfreq, 12*int(self.paddingsize/(2**encoder_layer))) #jxt
+        self.emfreq_embed2 = nn.Embedding(num_discrete_emfreq, num_gaussians * 6) #jxt
         t.toc('  初始化结束',restart=True)
 
 
@@ -627,7 +640,7 @@ class MeshEncoderDecoder(Module):
         face_embed = face_embed.reshape(-1,face_embed.shape[0],face_embed.shape[-1])#从(1,25000,576)变成(25000,1,576)
         '''(L B C)'''
         checksize(face_embed)
-        face_embed = self.pe(face_embed)
+        # face_embed = self.pe(face_embed)
         face_embed = self.transformer_model(face_embed)
         face_embed = face_embed.reshape(-1,face_embed.shape[0],face_embed.shape[-1])#从(25000,1,576)变回(1,25000,576)
 
@@ -643,104 +656,122 @@ class MeshEncoderDecoder(Module):
         return face_embed, discrete_face_coords, in_em1, lg_emfreq#, in_em_angle_vec
 
     @beartype
-    def decode( #decoder输入：torchsize(1,33564,576) 长度33564待定，维度576固定
+    def decode(
         self,
-        x, #torch.Size([6, 576, 281])
+        x, #torch.Size([batch, 576, 281])
         in_em1,
         device,
         lg_emfreq
-    ):
-        in_angle = torch.stack([in_em1[1]/180, in_em1[2]/360]).t().float().to(device).unsqueeze(1)#我草 我直接在这儿除不就好了 我是呆呆比 还写了个incidentangle_norm()
-
-        #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
-        # in_freq = in_em1[3].t().float().unsqueeze(1).unsqueeze(1).to(device) #这里是又得到了，然后用的mlp做嵌入 但是应该用离散embed做嵌入，能不能把之前的拿过来，得到的是什么样子的变量
-        '''tensor([[[0.7492]],  [[0.8482]],  [[0.9227]],   [[0.9204]],   [[0.9010]],   [[0.7291]]], device='cuda:0')'''
-
-        condangle1 = self.incident_angle_linear1(in_angle).reshape(x.shape[1],96,-1)
-        condangle2 = self.incident_angle_linear2(in_angle).reshape(x.shape[1],96,-1)
-        # condangle1 = self.sig1(self.incident_angle_linear1(in_angle)) #为了避免值太大干扰主变量？
-        # condangle2 = self.sig2(self.incident_angle_linear2(in_angle))
-        # condfreq1 = self.incident_freq_linear1(lg_emfreq.unsqueeze(1).float()).reshape(x.shape[1],96,-1)  #缩放因子，加强频率的影响，因为现在看来频率没啥影响，网络还没学到根据频率而变..不大行 发现是应该要归一化
-        # condfreq2 = self.incident_freq_linear2(lg_emfreq.unsqueeze(1).float()).reshape(x.shape[1],96,-1)
-        # condfreqfan1 = self.freqfan1(lg_emfreq.unsqueeze(1).float()).unsqueeze(1).reshape(x.shape[1],96,-1)
-        # condfreqfan2 = self.freqfan2(lg_emfreq.unsqueeze(1).float()).unsqueeze(1).reshape(x.shape[1],96,-1)
+    ):       
+        in_angle = torch.stack([in_em1[1]/180, in_em1[2]/360]).t().float().to(device).unsqueeze(1)
+        condangle1 = self.incident_angle_linear1(in_angle).reshape(x.shape[1],12,-1)
+        condangle2 = self.incident_angle_linear2(in_angle).squeeze(1)
         
         discretized_freq = self.discretize_emfreq(lg_emfreq) 
-        condfreq1 = self.emfreq_embed1(discretized_freq).reshape(x.shape[1],96,-1)
-        condfreq2 = self.emfreq_embed2(discretized_freq).reshape(x.shape[1],96,-1)
-        #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
-        
-        #---------------conv1d+fc bottleneck---------------
-        x = x.reshape(x.shape[1], x.shape[2], -1)  # 1DConv输入：Reshape to (batch_size, input_channel, seq_len)
-        checksize(x)
-        x = self.conv1d1(x) #571变1
-        checksize(x)
-        x = x + condangle1 #torch.Size([6, 1, 281]) #torch.Size([6, 96, 281])
+        condfreq1 = self.emfreq_embed1(discretized_freq).reshape(x.shape[1],12,-1)
+        condfreq2 = self.emfreq_embed2(discretized_freq)
+
+        x = x.reshape(x.shape[1], x.shape[2], -1)  # Reshape to (batch_size, input_channel, seq_len) [10, 576, 281]
+        batch_size, channel, length = x.shape
+        x = self.conv1d1(x) #576变12 [10, 12, 281]
+        x = x + condangle1
         x = x + condfreq1
-        # x = x + condfreq1.repeat(1, x.shape[1], 1)
-        # x = x + condfreq1.unsqueeze(1).repeat(1, x.shape[1], 1)
-        # x = x + condfreqfan1
 
-        x = self.fc1d1(x) #[96,351]-[96,45*90]
-        # checksize(x)
-        x = x + condangle2
-        x = x + condfreq2
-        # x = x + condfreq2.reshape(-1,x.shape[1],x.shape[2])
-        # x = x + condfreq2.unsqueeze(1).reshape(-1,x.shape[1],x.shape[2])
-        # x = x + condfreqfan2
+        # Flatten the input for MLP (combine length and channel dimensions)
+        x_flat = x.view(batch_size, -1)  # Shape: [batch, length * 12channel] [10, 3372]
 
-        #-------------SwinTransformer Decoder--------------
-        # x = x.reshape(x.shape[0],45*90,-1)
-        # checksize(x)
+        # Generate Gaussian parameters
+        params = self.GSmlp(x_flat)  # [batch, num_gaussians * 6] [10, 600]
+        params = params + condangle2
+        params = params + condfreq2
 
-        # ------------------------1D Conv+FC-----------------------------
-        x = x.view(x.size(0), -1, 45, 90)
-        checksize(x)
-        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+        params = params.view(batch_size, self.num_gaussians, 6)  # [batch, num_gaussians, 6] [10, 100, 6]
 
-        # ------------------------2D upConv------------------------------
-        x = self.upconv1(x)
-        x = self.bn1(x)
-        x = F.silu(x)
-        x = self.conv1_1(x)
-        x = self.bn1_1(x)
-        x = F.silu(x)
-        x = self.conv1_2(x)
-        x = self.bn1_2(x)
-        x = F.silu(x)
-        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+        # Separate Gaussian parameters: x, y, sigma_x, sigma_y, rho, intensity
+        xc, yc, sigma_x, sigma_y, rho, intensity = torch.chunk(params, 6, dim=-1)
 
-        x = self.upconv2(x)
-        x = self.bn2(x)
-        x = F.silu(x)
-        x = self.conv2_1(x)
-        x = self.bn2_1(x)
-        x = F.silu(x)
-        x = self.conv2_2(x)
-        x = self.bn2_2(x)
-        x = F.silu(x)
-        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+        # Normalize xc, yc to [-1, 1] (image coordinate range)
+        # xc = torch.tanh(xc)
+        # yc = torch.tanh(yc)
+        xc = 2 * torch.sigmoid(xc) - 1
+        yc = 2 * torch.sigmoid(yc) - 1
 
-        x = self.upconv3(x)
-        x = self.bn3(x)
-        x = self.conv3_1(x)
-        x = self.bn3_1(x)
-        x = F.silu(x)
-        x = self.conv3_2(x)
-        x = self.bn3_2(x)
-        x = F.silu(x)
+        # Ensure sigma_x, sigma_y > 0 (use softplus activation)
+        # sigma_x = F.softplus(sigma_x) + 1e-6
+        # sigma_y = F.softplus(sigma_y) + 1e-6
+        sigma_x = F.softplus(sigma_x) + 1e-1 #改成-2后，爆炸是不会爆炸了。。
+        sigma_y = F.softplus(sigma_y) + 1e-1 #需要让生成的2D高斯不要走极端，远一点 现在怎么满屏幕的射线了。。。
+        # sigma_x = torch.tanh(sigma_x) * 1.0  # 使用动态范围限制 将范围映射到 [0, 1]
+        # sigma_y = torch.tanh(sigma_y) * 1.0
 
-        x = self.conv1x1(x)
-        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
 
-        # x = x[:, :, :, :-1]
-        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
-        # print(f'Decodr用时：{(time.time()-time0):.4f}s')
-        return x.squeeze(dim=1)
+        # Ensure rho is within a valid range [-1, 1] (correlation coefficient)
+        rho = torch.tanh(rho)
+
+        # Intensity can be scaled to [0, 1] using sigmoid
+        intensity = torch.sigmoid(intensity)
+
+        # Create a 2D grid for the output image
+        x = torch.linspace(-1, 1, 720, device=x.device)
+        y = torch.linspace(-1, 1, 360, device=x.device)
+        X, Y = torch.meshgrid(x, y, indexing="ij")  # X, Y shape: [output_w, output_h]
+
+        # Expand X, Y to support broadcasting across batches and gaussians
+        X = X.unsqueeze(0).unsqueeze(0)  # Shape: [1, 1, output_w, output_h]
+        Y = Y.unsqueeze(0).unsqueeze(0)  # Shape: [1, 1, output_w, output_h]
+
+        # Expand Gaussian parameters to match grid dimensions
+        xc = xc.unsqueeze(-1).unsqueeze(-1)  # [batch, num_gaussians, 1, 1]
+        yc = yc.unsqueeze(-1).unsqueeze(-1)
+        sigma_x = sigma_x.unsqueeze(-1).unsqueeze(-1)
+        sigma_y = sigma_y.unsqueeze(-1).unsqueeze(-1)
+        rho = rho.unsqueeze(-1).unsqueeze(-1)
+        intensity = intensity.unsqueeze(-1).unsqueeze(-1)
+
+        # Compute Gaussian function for all Gaussians in parallel
+        # X_diff = X - xc  # [batch, num_gaussians, output_w, output_h]
+        # Y_diff = Y - yc  # [batch, num_gaussians, output_w, output_h]
+        # gaussians = intensity * torch.exp(
+        #     -(
+        #         (X_diff ** 2) / (2 * sigma_x ** 2)
+        #         + (Y_diff ** 2) / (2 * sigma_y ** 2)
+        #         + rho * (X_diff * Y_diff) / (sigma_x * sigma_y)
+        #     )
+        # )  # [batch, num_gaussians, output_w, output_h]
+
+        output = torch.zeros(batch_size, 360, 720, device=x.device)
+        for b in range(batch_size):
+            gaussian_map = torch.zeros(360, 720, device=x.device)
+            for i in range(self.num_gaussians):
+                # Extract parameters for the current Gaussian
+                x_c, y_c = xc[b, i], yc[b, i]
+                sig_x, sig_y = sigma_x[b, i], sigma_y[b, i]
+                p_rho = rho[b, i]
+                inten = intensity[b, i]
+
+                # Compute Gaussian function
+                gaussian = inten * torch.exp(
+                    -(
+                        ((X - x_c) ** 2) / (2 * sig_x ** 2)
+                        + ((Y - y_c) ** 2) / (2 * sig_y ** 2)
+                        + p_rho * (X - x_c) * (Y - y_c) / (sig_x * sig_y)
+                    )
+                )
+                if torch.isnan(gaussian.max()) or torch.isinf(gaussian.max()):
+                    raise NameError("gaussian became NaN or Inf, stopping training.")
+                gaussian_map += gaussian.squeeze().t()  # Add to the final map
+            output[b] = gaussian_map
+
+        # Sum over all Gaussians
+        # output = gaussians.sum(dim=1)  # Shape: [batch, output_w, output_h]
+        output = output.squeeze(1)
+        # if torch.isnan(output.max()) or torch.isinf(output.max()):
+        #     # raise NameError("Loss became NaN or Inf, stopping training.")
+        #     output[output == float('inf')] = 5
+        # output = output.reshape(output.shape[0],output.shape[2],-1)
+
+        return output
     
-        # x = self.swinunet(x,discretized_freq)
-        # checksize(x)
-        # return x.squeeze(dim=1)
 
     @beartype
     def forward(
@@ -750,11 +781,11 @@ class MeshEncoderDecoder(Module):
         faces:          TensorType['b', 'nf', 'nvf', int],
         geoinfo,
         in_em,
-        GT=None,
+        GT,
         logger=None,
         device='cpu',
         lgrcs=False,
-        gama=0.001,
+        gama=0.0005,
     ):
         # t.toc('  刚进来',restart=True)
         
@@ -783,20 +814,6 @@ class MeshEncoderDecoder(Module):
             device,
             lg_emfreq
         )
-        # t.toc('  decoder',restart=True)
-        # print('decoder:')
-        # tic = toc(tic) #耗时0.0109s
-#------------------------------------------------------------------出Decoder了，后面都是算loss等后处理---------------------------------------------------------------------
-        #平滑后处理：中值滤波+高斯滤波+修改后的smoothloss
-        # decoded = decoded.unsqueeze(1)  # 添加 channel 维度
-        # decoded = median_filter2d(decoded, kernel_size=5)# 应用中值滤波
-        # # decoded = median_filter2d(decoded, kernel_size=5)# 应用中值滤波
-        # # print('中值滤波')
-        # # tic = toc(tic)
-        # decoded = gaussian_filter2d(decoded, kernel_size=5, sigma=4, device=device)#两个都用 这个效果好
-        # decoded = decoded.squeeze(1)
-        # # print('高斯滤波:')
-        # # tic = toc(tic)
 
         if GT == None:
             # tic = toc(tic)
@@ -804,16 +821,8 @@ class MeshEncoderDecoder(Module):
         else:
             GT = GT[:,:-1,:] #361*720变360*720
             #------------------------------------------------------------------------
-            if lgrcs == True:
-                epsilon = 0.001 #防止lg0的鲁棒机制
-                # logger.info(f'初始GT:{GT[0]}')
-                GT = torch.log10(torch.max(GT, torch.tensor(epsilon, device=GT.device))) #只要这里加一行把gt变成lg后的gt就行了。。其他甚至都完全不用改
-                # logger.info(f'lg后GT:{GT[0]}')
-                # logger.info(f'再变回去的GT:{torch.pow(10, GT)[0]}')
-                # GT = torch.pow(10, GT) #反变换在这里
-            #------------------------------------------------------------------------
             TVL1loss = TVL1Loss(beta=1.0,gama=gama) #我草 发现一个错误  pixel_dif1 = images[1:, :, :] - images[:-1, :, :] 但是GT.shape = torch.Size([1, 360, 720])，第一项是batchsize。。。
-            loss = TVL1loss(decoded,GT) #/(GT.shape[0]) #平均了batch的loss 不需要手动平均。。自动会平均的
+            loss = TVL1loss(decoded,GT)/(GT.shape[0]) #平均了batch的loss
             # print('TVL1loss:')
             # tic = toc(tic)
             
@@ -839,16 +848,14 @@ class MeshEncoderDecoder(Module):
             # mean_mse =  F.mse loss(decoded, GT, reduction='mean')
             # mseloss = nn.MSELoss(reduction='mean')
             # with torch.no_grad():
-                minus = decoded - GT
-                mse = ((minus) ** 2).sum() / GT.numel()
-                nmse = mse / torch.var(GT)
-                rmse = torch.sqrt(mse)
-                l1 = (decoded-GT).abs().mean()
-                percentage_error = (minus / (GT + 1e-8)).abs().mean() * 100
+                mean_mse = ((decoded-GT) ** 2).sum() / GT.numel()
+
+                gt_variance = torch.var(GT)
+                mean_nmse = mean_mse / gt_variance
 
             # logger.info(f"PSNR: {psnr_list} , Mean PSNR: {mean_psnr:.2f}, SSIM: {ssim_list}, Mean SSIM: {mean_ssim:.4f}")
             # print('mean_mse:')
             # tic = toc(tic) #耗时2.0270s
             # t.toc('  后处理',restart=True)
             # return loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse
-            return total_loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mse, nmse, rmse, l1, percentage_error
+            return total_loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse, mean_nmse

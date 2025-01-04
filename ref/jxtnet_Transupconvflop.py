@@ -18,7 +18,7 @@ from einops.layers.torch import Rearrange
 from net.utils import transform_to_log_coordinates, psnr, ssim, toc, checksize
 import numpy as np
 from net.mytransformer import PositionalEncoding,TransformerWithPooling
-# from net.myswinunet import SwinTransformerSys
+from net.myswinunet import SwinTransformerSys
 from pytictoc import TicToc
 import trimesh
 import glob
@@ -91,8 +91,8 @@ class TVL1Loss(nn.Module): # maxloss!
         # print(f"L1={loss_L1:.4f},TV={tvloss:.4f},max={maxloss:.4f}")
         total_loss = loss_L1 + tvloss * self.beta + maxloss * self.gama
         # print(f'l1loss:{loss_L1},tvloss:{tvloss},totalloss:{total_loss}')
-        return total_loss
-        # return loss_L1
+        # return total_loss
+        return loss_L1
 
 # Convert spherical coordinates to cartesian
 def spherical_to_cartesian(theta, phi, device="cpu"):
@@ -390,7 +390,7 @@ class MeshEncoderDecoder(Module):
         #----------------------------------------------------jxt encoder----------------------------------------------------------
         self.discretize_face_coords = partial(discretize, num_discrete = num_discrete_coors, continuous_range = coor_continuous_range) #partial是用来把某个已经定义的函数固定一部分参数做成新的函数，这里就是针对face坐标，把descretize离散化函数定制成针对face坐标的离散化函数，方便后面调用discretize_face_coords可以少写几个参数减少出错且更简洁。
         #self居然也可以存函数 我还以为只能存数据或者实例
-        self.coor_embed = nn.Embedding(num_discrete_coors, dim_coor_embed) #这里还只是实例化了，离散embedding数是num_discrete_coors = 512， 每个embedding的维度是dim_coor_embed = 64 后续会在encoder中使用
+        self.coor_embed = nn.Embedding(num_discrete_coors, dim_coor_embed) #这里还只是实例化了，离散embedding数是num_discrete_coors = 128， 每个embedding的维度是dim_coor_embed = 64 后续会在encoder中使用
 
         self.discretize_angle = partial(discretize, num_discrete = num_discrete_angle, continuous_range = (0., pi))
         self.angle_embed = nn.Embedding(num_discrete_angle, dim_angle_embed)
@@ -451,11 +451,17 @@ class MeshEncoderDecoder(Module):
         #         nn.LayerNorm(decoder_outdim*8*45*90)).to(device)
         
         self.conv1d1 = nn.Conv1d(576, decoder_outdim*8, kernel_size=1, stride=1, dilation=1 ,padding=0).to(device) #[351,576]-[351,96]
+        
         self.fc1d1 = nn.Sequential(
-                nn.Linear(int(self.paddingsize/(2**encoder_layer)), int(self.paddingsize/(2**encoder_layer))),
+                FANLayer(int(self.paddingsize/(2**encoder_layer)), int(self.paddingsize/(2**encoder_layer))),
                 nn.SiLU(),
-                nn.Linear(int(self.paddingsize/(2**encoder_layer)), 45*90),#4050
+                FANLayer(int(self.paddingsize/(2**encoder_layer)), 4051),#4050
                 nn.LayerNorm(45*90)).to(device) #[351,96]-[45*90,96]
+        # self.fc1d1 = nn.Sequential(
+        #         nn.Linear(int(self.paddingsize/(2**encoder_layer)), int(self.paddingsize/(2**encoder_layer))),
+        #         nn.SiLU(),
+        #         nn.Linear(int(self.paddingsize/(2**encoder_layer)), 45*90),#4050
+        #         nn.LayerNorm(45*90)).to(device) #[351,96]-[45*90,96]
         
         # decoder_outdim*8 = 64
         # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
@@ -681,6 +687,7 @@ class MeshEncoderDecoder(Module):
         # x = x + condfreq1.unsqueeze(1).repeat(1, x.shape[1], 1)
         # x = x + condfreqfan1
 
+        print("Input shape before fc1d1:", x.shape)
         x = self.fc1d1(x) #[96,351]-[96,45*90]
         # checksize(x)
         x = x + condangle2
@@ -750,7 +757,7 @@ class MeshEncoderDecoder(Module):
         faces:          TensorType['b', 'nf', 'nvf', int],
         geoinfo,
         in_em,
-        GT=None,
+        GT,
         logger=None,
         device='cpu',
         lgrcs=False,
@@ -762,7 +769,7 @@ class MeshEncoderDecoder(Module):
 #------------------------------------------------------------------进Encoder---------------------------------------------------------------------------------------------
         # print('\n')
         checksize(faces)
-        encoded, __, in_em1, lg_emfreq = self.encode( #encoded.shape=torch.Size([281, 10, 576])
+        encoded, __, in_em1, lg_emfreq = self.encode( #从这儿进encode里 返回的encoded就是那一个跑了一溜SAGEConv得到的face_embed.size = torch.Size([1, 33564, 576]), face_coordinates.shape = torch.Size([1, 33564, 9])是一个面3个点9个坐标点？为啥一个面是tensor([35, 60, 55, 35, 60, 55, 35, 60, 55]) 我知道了因为128^3离散化了
             vertices = vertices, #顶点
             faces = faces, #面
             geoinfo = geoinfo,
@@ -813,7 +820,7 @@ class MeshEncoderDecoder(Module):
                 # GT = torch.pow(10, GT) #反变换在这里
             #------------------------------------------------------------------------
             TVL1loss = TVL1Loss(beta=1.0,gama=gama) #我草 发现一个错误  pixel_dif1 = images[1:, :, :] - images[:-1, :, :] 但是GT.shape = torch.Size([1, 360, 720])，第一项是batchsize。。。
-            loss = TVL1loss(decoded,GT) #/(GT.shape[0]) #平均了batch的loss 不需要手动平均。。自动会平均的
+            loss = TVL1loss(decoded,GT)/(GT.shape[0]) #平均了batch的loss
             # print('TVL1loss:')
             # tic = toc(tic)
             
@@ -839,16 +846,14 @@ class MeshEncoderDecoder(Module):
             # mean_mse =  F.mse loss(decoded, GT, reduction='mean')
             # mseloss = nn.MSELoss(reduction='mean')
             # with torch.no_grad():
-                minus = decoded - GT
-                mse = ((minus) ** 2).sum() / GT.numel()
-                nmse = mse / torch.var(GT)
-                rmse = torch.sqrt(mse)
-                l1 = (decoded-GT).abs().mean()
-                percentage_error = (minus / (GT + 1e-8)).abs().mean() * 100
+                mean_mse = ((decoded-GT) ** 2).sum() / GT.numel()
+
+                gt_variance = torch.var(GT)
+                mean_nmse = mean_mse / gt_variance
 
             # logger.info(f"PSNR: {psnr_list} , Mean PSNR: {mean_psnr:.2f}, SSIM: {ssim_list}, Mean SSIM: {mean_ssim:.4f}")
             # print('mean_mse:')
             # tic = toc(tic) #耗时2.0270s
             # t.toc('  后处理',restart=True)
             # return loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse
-            return total_loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mse, nmse, rmse, l1, percentage_error
+            return total_loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse, mean_nmse

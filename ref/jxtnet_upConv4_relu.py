@@ -33,7 +33,7 @@ from taylor_series_linear_attention import TaylorSeriesLinearAttn
 from torch_geometric.nn.conv import SAGEConv
 from gateloop_transformer import SimpleGateLoopLayer
 import numpy as np
-from net.kan2 import KAN
+from ref.kan2 import KAN
 # from net.kan import *
 
 def total_variation(images):
@@ -1267,42 +1267,42 @@ class MeshAutoencoder(Module):
         # ------------------------2D upConv------------------------------
         x = self.upconv1(x)
         x = self.bn1(x)
-        # x = F.relu(x)
-        x = F.silu(x)
+        x = F.relu(x)
+        # x = F.silu(x)
         x = self.conv1_1(x)
         x = self.bn1_1(x)
-        # x = F.relu(x)
-        x = F.silu(x)
+        x = F.relu(x)
+        # x = F.silu(x)
         x = self.conv1_2(x)
         x = self.bn1_2(x)
-        # x = F.relu(x)
-        x = F.silu(x)
+        x = F.relu(x)
+        # x = F.silu(x)
         # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
 
         x = self.upconv2(x)
         x = self.bn2(x)
-        # x = F.relu(x)
-        x = F.silu(x)
+        x = F.relu(x)
+        # x = F.silu(x)
         x = self.conv2_1(x)
         x = self.bn2_1(x)
-        # x = F.relu(x)
-        x = F.silu(x)
+        x = F.relu(x)
+        # x = F.silu(x)
         x = self.conv2_2(x)
         x = self.bn2_2(x)
-        # x = F.relu(x)
-        x = F.silu(x)
+        x = F.relu(x)
+        # x = F.silu(x)
         # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
 
         x = self.upconv3(x)
         x = self.bn3(x)
         x = self.conv3_1(x)
         x = self.bn3_1(x)
-        # x = F.relu(x)
-        x = F.silu(x)
+        x = F.relu(x)
+        # x = F.silu(x)
         x = self.conv3_2(x)
         x = self.bn3_2(x)
-        # x = F.relu(x)
-        x = F.silu(x)
+        x = F.relu(x)
+        # x = F.silu(x)
         # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
         
         x = self.conv1x1(x)
