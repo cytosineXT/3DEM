@@ -42,8 +42,10 @@ def parse_args():
 
     parser.add_argument('--trainname', type=str, default='bb7c', help='logname')
     parser.add_argument('--folder', type=str, default='test', help='logname')
-    parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest', help='Path to rcs directory')
-    parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest', help='Path to validation directory')
+    parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest', help='Path to rcs directory') #liang
+    parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/traintest', help='Path to validation directory') #liang
+    # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest', help='Path to rcs directory')
+    # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest', help='Path to validation directory')
     # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_pretrain', help='Path to rcs directory')
     # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_val', help='Path to validation directory')
     # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/mul_mie_pretrain', help='Path to rcs directory')
@@ -52,8 +54,9 @@ def parse_args():
 
     parser.add_argument('--seed', type=int, default=77, help='Random seed for reproducibility')
     parser.add_argument('--gama', type=float, default=0.0005, help='Loss threshold or gamma parameter')
-    # parser.add_argument('--cuda', type=str, default='cpu', help='CUDA device to use')
-    parser.add_argument('--cuda', type=str, default='cuda:0', help='CUDA device to use')
+    parser.add_argument('--beta', type=float, default=1.0, help='Loss threshold or gamma parameter')
+    parser.add_argument('--lr', type=float, default=0.001, help='Loss threshold or gamma parameter')
+    parser.add_argument('--cuda', type=str, default='cuda:1', help='CUDA device to use')
     return parser.parse_args()
 
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
@@ -78,6 +81,8 @@ valdir = args.valdir
 pretrainweight = args.pretrainweight
 seed = args.seed
 gama = args.gama
+beta = args.beta
+learning_rate = args.lr
 cudadevice = args.cuda
 name = args.trainname
 folder = args.folder
@@ -85,6 +90,8 @@ batchsize = args.batch
 
 if 'pretrain' in rcsdir:
     mode = 'pretrain'
+elif 'test' in rcsdir:
+    mode = 'fasttest'
 else:
     if use_preweight == True:
         mode = 'finetune'
@@ -98,6 +105,8 @@ accumulation_step = 8
 threshold = 20
 bestloss = 1
 epoch_mean_loss = 0.0
+minmse = 1.0
+valmse = 1.0
 in_ems = []
 rcss = []
 cnt = 0
@@ -111,18 +120,23 @@ lgrcs = False
 shuffle = True
 multigpu = False
 alpha = 0.0
-learning_rate = 0.001  # 初始学习率
-lr_time = epoch
+# learning_rate = 0.001  # 初始学习率
+if mode == "fasttest":
+    # lr_time = 2*epoch
+    lr_time = epoch
+else:
+    lr_time = epoch
+
 encoder_layer = 6
 decoder_outdim = 12  # 3S 6M 12L
 paddingsize = 18000
 
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "output" / f"{folder}" /f'{date}_{mode}_{name}_seed{seed}_maxloss{gama}_{cudadevice}_'), exist_ok=False))##
+save_dir = str(increment_path(Path(ROOT / "output" / f"{folder}" /f'{date}_{name}_epoch{epoch}lr{learning_rate}_gama{gama}_beta{beta}_{cudadevice}_'), exist_ok=False))##
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
-maxsavedir = os.path.join(save_dir,'maxp.pt')
+maxsavedir = os.path.join(save_dir,'minmse.pt')
 lossessavedir = os.path.join(save_dir,'loss.png')
 psnrsavedir = os.path.join(save_dir,'psnr.png')
 ssimsavedir = os.path.join(save_dir,'ssim.png')
@@ -224,6 +238,7 @@ for i in range(epoch):
             device = device,
             lgrcs = lgrcs,
             gama=gama,
+            beta=beta
         )
         # print('--推理总时长:')
         # tic=toc(tic)
@@ -294,12 +309,12 @@ for i in range(epoch):
         plot2DRCS(rcs=drawGT.squeeze(), savedir=out2DGTpngpath, logger=logger,cutmax=None)
         GTflag = 0
         logger.info('已画GT图')
-    if i == 0 or i % 10 == 0: #存指定倍数轮时画某张图看训练效果
+    if i == 0 or (i+1) % 10 == 0: #存指定倍数轮时画某张图看训练效果
         outrcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}.png')
         out2Drcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}_psnr{p.item():.2f}_ssim{s.item():.4f}_mse{m:.4f}_2D.png')
         # plotRCS2(rcs=drawrcs, savedir=outrcspngpath, logger=logger)
         plot2DRCS(rcs=drawrcs.squeeze(), savedir=out2Drcspngpath, logger=logger,cutmax=None)
-        logger.info(f'已画{i}轮图')
+        logger.info(f'已画{i+1}轮图')
 
     epoch_mean_loss = sum(epoch_loss)/len(epoch_loss)
     losses.append(epoch_mean_loss)  # 保存当前epoch的loss以备绘图
@@ -418,12 +433,17 @@ for i in range(epoch):
     if mode == "pretrain":
         if (i+1) % 20 == 0 or i == -1: #存指定倍数轮的checkpoint
         # if (i+1) % 1 == 0 or i == -1: #存指定倍数轮的checkpoint
-            valpsnr=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+            valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+    elif mode == "fasttest":
+        if (i+1) % 10 == 0 or i == -1: #存指定倍数轮的checkpoint
+            valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
     else :
         if (i+1) % 1 == 0 or i == -1: #存指定倍数轮的checkpoint
-            valpsnr=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
-    if maxpsnr < valpsnr:
-        maxpsnr = valpsnr
+            valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+    # if maxpsnr < valpsnr:
+    #     maxpsnr = valpsnr
+    if minmse > valmse:
+        minmse = valmse
         torch.save(autoencoder.state_dict(), maxsavedir)
 
 logger.info(f"损坏的文件：{corrupted_files}")

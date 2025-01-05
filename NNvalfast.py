@@ -393,7 +393,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
         statisdir = os.path.join(save_dir,f'statistic_epoch{epoch}_PSNR{ave_psnr:.2f}dB_SSIM{ave_ssim:.4f}_MSE{ave_mse:.4f}_NMSE{ave_nmse:.4f}_Loss{ave_loss:.4f}.png')
         plotstatistic2(psnrs,ssims,mses,nmses,statisdir)
         # plotstatistic(psnrs,ssims,mses,statisdir,ave_loss,ave_psnr,ave_ssim,ave_mse)
-    return ave_psnr
+    return ave_mse #ave_psnr, 
 
 
 if __name__ == '__main__':
