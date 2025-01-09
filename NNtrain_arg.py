@@ -1,4 +1,3 @@
-# python NNtrain_arg.py --seed 777 --gama 0.0005 --cuda 'cuda:0'
 #0802会议精神：1.decoder换成Transformer试试，swin-Transformer可能引入不合理的归纳偏置(可能不行 因为361*720对于Transformer来说太长了。。)；2.incident conditioning也要归一化 否则不合理(已完成)；3.AutoEncoder用纯3D训练，decoder再单独训练一个带skip connection的unet decoder(重头戏)；4.学习率调度不要一直起伏，而是用半个cos先大后小这样做；5.定长pooling实现，这样就不用padding了，否则有0还是不合理。
 import torch
 import time
@@ -42,6 +41,7 @@ def parse_args():
 
     parser.add_argument('--trainname', type=str, default='bb7c', help='logname')
     parser.add_argument('--folder', type=str, default='test', help='logname')
+    parser.add_argument('--loss', type=str, default='L1', help='logname')
     parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest', help='Path to rcs directory') #liang
     parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/traintest', help='Path to validation directory') #liang
     # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest', help='Path to rcs directory')
@@ -87,6 +87,7 @@ cudadevice = args.cuda
 name = args.trainname
 folder = args.folder
 batchsize = args.batch
+loss_type = args.loss
 
 if 'pretrain' in rcsdir:
     mode = 'pretrain'
@@ -133,7 +134,7 @@ paddingsize = 18000
 
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "output" / f"{folder}" /f'{date}_{name}_epoch{epoch}lr{learning_rate}_gama{gama}_beta{beta}_{cudadevice}_'), exist_ok=False))##
+save_dir = str(increment_path(Path(ROOT / "output" / f"{folder}" /f'{date}_{name}{loss_type}_e{epoch}lr{learning_rate}_gama{gama}_{cudadevice}_'), exist_ok=False))##
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 maxsavedir = os.path.join(save_dir,'minmse.pt')
@@ -150,9 +151,9 @@ logdir = os.path.join(save_dir,'log.txt')
 logger = get_logger(logdir)
 # logger.info(f'使用net.jxtnet_pureTrans')
 # logger.info(f'使用net.jxtnet_Transupconv')
-
+logger.info(args)
 # logger.info(f'使用jxtnet_transformerEncoder.py')
-logger.info(f'参数设置：batchsize={batchsize}, epoch={epoch}, use_preweight={use_preweight}, cudadevice={cudadevice}, learning_rate={learning_rate}, lr_time={lr_time}, shuffle={shuffle}, gama={gama}, seed={seed}, rcsdir = {rcsdir}, valdir = {valdir}, pretrainweight = {pretrainweight}')
+# logger.info(f'参数设置：batchsize={batchsize}, epoch={epoch}, use_preweight={use_preweight}, cudadevice={cudadevice}, learning_rate={learning_rate}, lr_time={lr_time}, shuffle={shuffle}, gama={gama}, seed={seed}, rcsdir = {rcsdir}, valdir = {valdir}, pretrainweight = {pretrainweight}')
 logger.info(f'数据集用{rcsdir}训练')
 logger.info(f'保存到{lastsavedir}')
 
@@ -238,7 +239,8 @@ for i in range(epoch):
             device = device,
             lgrcs = lgrcs,
             gama=gama,
-            beta=beta
+            beta=beta,
+            loss_type=loss_type
         )
         # print('--推理总时长:')
         # tic=toc(tic)
@@ -431,20 +433,32 @@ for i in range(epoch):
 
     # plt.show()
     if mode == "pretrain":
-        if (i+1) % 20 == 0 or i == -1: #存指定倍数轮的checkpoint
-        # if (i+1) % 1 == 0 or i == -1: #存指定倍数轮的checkpoint
-            valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+        if (i+1) % 10 == 0 or i == -1: 
+        # if (i+1) % 1 == 0 or i == -1: 
+            if i+1==epoch:
+                valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+            else:
+                valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+            
     elif mode == "fasttest":
-        if (i+1) % 10 == 0 or i == -1: #存指定倍数轮的checkpoint
-            valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+        if (i+1) % 10 == 0 or i == -1: 
+            if i+1==epoch:
+                valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+            else:
+                valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
     else :
-        if (i+1) % 1 == 0 or i == -1: #存指定倍数轮的checkpoint
+        if (i+1) % 1 == 0 or i == -1:
             valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+
     # if maxpsnr < valpsnr:
     #     maxpsnr = valpsnr
     if minmse > valmse:
         minmse = valmse
         torch.save(autoencoder.state_dict(), maxsavedir)
+
+if i+1==epoch:
+    renamedir = save_dir+'m'+f'{minmse:.4f}'[2:]
+    os.rename(save_dir,renamedir)
 
 logger.info(f"损坏的文件：{corrupted_files}")
 logger.info(f'训练结束时间：{time.strftime("%Y-%m-%d %H:%M:%S",time.localtime(time.time()))}')

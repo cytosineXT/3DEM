@@ -356,7 +356,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
                 out2Drcspngpath2 = os.path.join(save_dir2,f'epoch{epoch}_{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_psnr{psnrlist.item():.2f}_ssim{ssimlist.item():.4f}_mse{mse:.4f}_2Dcut.png')
                 outGTpngpath = os.path.join(save_dir2,f'epoch{epoch}_{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_GT.png')
                 out2DGTpngpath = os.path.join(save_dir2,f'epoch{epoch}_{plane}_theta{eminfo[0]}phi{eminfo[1]}freq{eminfo[2]:.3f}_2DGT.png')
-                logger.info(out2Drcspngpath) #查看输出的图片叫啥在哪儿
+                # logger.info(out2Drcspngpath) #查看输出的图片叫啥在哪儿
                 plot2DRCS(rcs=outrcs, savedir=out2Drcspngpath, logger=logger,cutmax=None) #预测2D
                 plot2DRCS(rcs=outrcs, savedir=out2Drcspngpath2, logger=logger,cutmax=torch.max(rcs1).item()) #预测2D但是带cut
                 plot2DRCS(rcs=rcs1, savedir=out2DGTpngpath, logger=logger,cutmax=None) #GT2D

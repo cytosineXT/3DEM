@@ -15,15 +15,17 @@ from beartype.typing import Tuple
 from einops import rearrange, pack
 from einops.layers.torch import Rearrange
 
-from net.utils import transform_to_log_coordinates, psnr, ssim, toc, checksize
+from net.utils import transform_to_log_coordinates, psnr, toc, checksize 
+from net.utils import ssim as myssim
+from pytorch_msssim import ms_ssim, ssim, SSIM, MS_SSIM
 import numpy as np
-from net.mytransformer import PositionalEncoding,TransformerWithPooling
+from net.mytransformerCond import PositionalEncoding,TransformerWithPooling
 # from net.myswinunet import SwinTransformerSys
 from pytictoc import TicToc
 import trimesh
 import glob
 import os
-from net.FANLayer import FANLayer
+# from net.FANLayer import FANLayer
 # 
 t = TicToc()
 t.tic()
@@ -54,45 +56,81 @@ def total_variation(images):
         raise ValueError("'images' must be either 3 or 4-dimensional.")
     return tot_var
 
-# class TVL1Loss(nn.Module):
-#     def __init__(self, beta=1.0):
+# class TVL1Loss(nn.Module): # maxloss!
+#     def __init__(self, beta=1.0, gama=1.0):
 #         super(TVL1Loss, self).__init__()
 #         # self.alpha = alpha
 #         self.beta = beta
+#         self.gama = gama
 
 #     def forward(self, decoded, GT):
 #         # Calculate the MSE loss
-#         L1_loss = nn.L1Loss(reduction='mean')
-#         # L1_loss = nn.MSELoss(reduction='mean')
+#         # L1_loss = nn.L1Loss(reduction='mean')
+#         L1_loss = nn.MSELoss(reduction='mean')
 #         # L1_loss = nn.L1Loss(reduction='sum')
 #         loss_L1 = L1_loss(decoded, GT)
-#         tvloss= total_variation(decoded)
+#         tvloss = total_variation(decoded)
+#         maxloss = torch.mean(torch.abs(torch.amax(decoded, dim=(1, 2)) - torch.amax(GT, dim=(1, 2))))
 #         # logger.info(f" tvloss:{tvloss*self.beta:.4f}, L1loss:{loss_L1:.4f}")
-#         total_loss = loss_L1 + tvloss * self.beta
+#         # print(f"L1={loss_L1:.4f},TV={tvloss:.4f},max={maxloss:.4f}")
+#         total_loss = loss_L1 + tvloss * self.beta + maxloss * self.gama
 #         # print(f'l1loss:{loss_L1},tvloss:{tvloss},totalloss:{total_loss}')
 #         return total_loss
 #         # return loss_L1
-class TVL1Loss(nn.Module): # maxloss!
-    def __init__(self, beta=1.0, gama=1.0):
-        super(TVL1Loss, self).__init__()
-        # self.alpha = alpha
-        self.beta = beta
-        self.gama = gama
 
-    def forward(self, decoded, GT):
-        # Calculate the MSE loss
-        L1_loss = nn.L1Loss(reduction='mean')
-        # L1_loss = nn.MSELoss(reduction='mean')
-        # L1_loss = nn.L1Loss(reduction='sum')
-        loss_L1 = L1_loss(decoded, GT)
-        tvloss = total_variation(decoded)
-        maxloss = torch.mean(torch.abs(torch.amax(decoded, dim=(1, 2)) - torch.amax(GT, dim=(1, 2))))
-        # logger.info(f" tvloss:{tvloss*self.beta:.4f}, L1loss:{loss_L1:.4f}")
-        # print(f"L1={loss_L1:.4f},TV={tvloss:.4f},max={maxloss:.4f}")
-        total_loss = loss_L1 + tvloss * self.beta + maxloss * self.gama
-        # print(f'l1loss:{loss_L1},tvloss:{tvloss},totalloss:{total_loss}')
-        return total_loss
-        # return loss_L1
+def loss_fn(decoded, GT, loss_type='L1', gama=0.01, delta=0.5):
+
+    maxloss = torch.mean(torch.abs(torch.amax(decoded, dim=(1, 2)) - torch.amax(GT, dim=(1, 2))))
+    minus = decoded - GT
+    mse = ((minus) ** 2).mean() #111 就是一样的
+    nmse = mse / torch.var(GT)
+    rmse = torch.sqrt(mse)
+    l1 = (decoded-GT).abs().mean()
+    # percentage_error = (minus / (GT + 1e-2)).abs().mean()
+    percentage_error = (minus / (GT + 1e-8)).abs().mean()
+
+    if loss_type == 'mse':
+        # loss = F.mse_loss(decoded, GT)
+        loss = mse
+    elif loss_type == 'L1':
+        # loss = F.l1_loss(pred, target)
+        loss = l1
+    elif loss_type == 'rmse':
+        loss = rmse
+    elif loss_type == 'nmse':
+        loss = nmse
+    elif loss_type == 'per':
+        loss = percentage_error
+    elif loss_type == 'ssim':
+        loss = 1 - torch.stack([ssim(decoded[i].unsqueeze(0), GT[i].unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
+    elif loss_type == 'msssim':
+        loss = 1 - torch.stack([ms_ssim(decoded[i].unsqueeze(0), GT[i].unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
+
+    elif loss_type == 'mse_l1':
+        loss = delta * mse + (1 - delta) * l1
+    elif loss_type == 'mse_nmse':
+        loss = delta * mse + (1 - delta) * nmse
+    elif loss_type == 'l1_nmse':
+        loss = delta * l1 + (1 - delta) * nmse
+    elif loss_type == 'mse_ssim':
+        ssim_val = torch.stack([ssim(decoded[i].unsqueeze(0), GT[i].unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
+        loss = delta * mse + (1 - delta) * (1 - ssim_val)
+    elif loss_type == 'mse_msssim':
+        msssim_val = torch.stack([ms_ssim(decoded[i].unsqueeze(0), GT[i].unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
+        loss = delta * mse + (1 - delta) * (1 - msssim_val)
+    elif loss_type == 'l1_ssim':
+        ssim_val = torch.stack([ssim(decoded[i].unsqueeze(0), GT[i].unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
+        loss = delta * l1 + (1 - delta) * (1 - ssim_val)
+    elif loss_type == 'l1_msssim':
+        msssim_val = torch.stack([ms_ssim(decoded[i].unsqueeze(0), GT[i].unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
+        loss = delta * l1 + (1 - delta) * (1 - msssim_val)
+    else:
+        print(f"Unsupported loss type: {loss_type}, will use l1 loss")
+        loss = l1
+
+    total_loss = loss + gama * maxloss
+    return total_loss
+    # return loss
 
 # Convert spherical coordinates to cartesian
 def spherical_to_cartesian(theta, phi, device="cpu"):
@@ -478,6 +516,9 @@ class MeshEncoderDecoder(Module):
         self.bn3_1 = nn.BatchNorm2d(int(decoder_outdim*8/8))  # 添加的批量归一化层1
         self.bn3_2 = nn.BatchNorm2d(int(decoder_outdim*8/8))  # 添加的批量归一化层2
         self.conv1x1 = nn.Conv2d(int(decoder_outdim*8/8), 1, kernel_size=1, stride=1, padding=0)   #1×1卷积，把多的维度融合了
+        self.conv4_1 = nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1)  # 添加的卷积层1
+        self.conv4_2 = nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1)  # 添加的卷积层1
+
 
 
         # self.swinunet = SwinTransformerSys(embed_dim=decoder_outdim,window_size=9).to(device) #我给的是这个 其他都是自己算出来的
@@ -505,6 +546,8 @@ class MeshEncoderDecoder(Module):
         self.emfreq_embed3 = nn.Embedding(num_discrete_emfreq, 90*180) #jxt
         self.incident_angle_linear4 = nn.Linear(2, 180*360)
         self.emfreq_embed4 = nn.Embedding(num_discrete_emfreq, 180*360) #jxt
+        self.incident_angle_linear5 = nn.Linear(2, 360*720)
+        self.emfreq_embed5 = nn.Embedding(num_discrete_emfreq, 360*720) #jxt
 
         t.toc('  初始化结束',restart=True)
 
@@ -635,7 +678,7 @@ class MeshEncoderDecoder(Module):
         '''(L B C)'''
         checksize(face_embed)
         face_embed = self.pe(face_embed)
-        face_embed = self.transformer_model(face_embed)
+        face_embed = self.transformer_model(face_embed, in_em1, lg_emfreq, device)
         face_embed = face_embed.reshape(-1,face_embed.shape[0],face_embed.shape[-1])#从(25000,1,576)变回(1,25000,576)
 
         # shape = (*orig_face_embed_shape, face_embed.shape[-1])# (1, 33564, 576) = (*torch.Size([1, 33564]), 576)
@@ -667,6 +710,7 @@ class MeshEncoderDecoder(Module):
         condangle2 = self.incident_angle_linear2(in_angle).reshape(x.shape[1],96,-1) #torch.Size([10, 1, 388800])
         condangle3 = self.incident_angle_linear3(in_angle).reshape(x.shape[1],90,-1).unsqueeze(1).repeat(1, 48, 1, 1)
         condangle4 = self.incident_angle_linear4(in_angle).reshape(x.shape[1],180,-1).unsqueeze(1).repeat(1, 24, 1, 1)
+        condangle5 = self.incident_angle_linear5(in_angle).reshape(x.shape[1],360,-1).unsqueeze(1).repeat(1, 12, 1, 1)
         # condangle1 = self.sig1(self.incident_angle_linear1(in_angle)) #为了避免值太大干扰主变量？
         # condangle2 = self.sig2(self.incident_angle_linear2(in_angle))
         # condfreq1 = self.incident_freq_linear1(lg_emfreq.unsqueeze(1).float()).reshape(x.shape[1],96,-1)  #缩放因子，加强频率的影响，因为现在看来频率没啥影响，网络还没学到根据频率而变..不大行 发现是应该要归一化
@@ -679,6 +723,7 @@ class MeshEncoderDecoder(Module):
         condfreq2 = self.emfreq_embed2(discretized_freq).reshape(x.shape[1],96,-1) #torch.Size([10, 388800])
         condfreq3 = self.emfreq_embed3(discretized_freq).reshape(x.shape[1],90,-1).unsqueeze(1).repeat(1, 48, 1, 1)
         condfreq4 = self.emfreq_embed4(discretized_freq).reshape(x.shape[1],180,-1).unsqueeze(1).repeat(1, 24, 1, 1)
+        condfreq5 = self.emfreq_embed5(discretized_freq).reshape(x.shape[1],360,-1).unsqueeze(1).repeat(1, 12, 1, 1)
         #-----------------------------------------------------------------------------------------------频率专题-------------------------------------------------------------------
         
         #---------------conv1d+fc bottleneck---------------
@@ -746,24 +791,25 @@ class MeshEncoderDecoder(Module):
 
         x = self.upconv3(x)
         x = self.bn3(x)
+        x = F.silu(x)
+        x = x + condangle5
+        x = x + condfreq5
         x = self.conv3_1(x)
         x = self.bn3_1(x)
         x = F.silu(x)
+        x = x + condangle5
+        x = x + condfreq5
         x = self.conv3_2(x)
         x = self.bn3_2(x)
-        x = F.silu(x) #torch.Size([10, 12, 360, 720])
+        x = F.relu(x)
+        x = x + condangle5
+        x = x + condfreq5
 
         x = self.conv1x1(x)
-        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
+        # x = self.conv4_1(x)
+        # x = self.conv4_2(x)
 
-        # x = x[:, :, :, :-1]
-        # print(x.shape, x.shape[0] * x.shape[1] * x.shape[2] * x.shape[3])
-        # print(f'Decodr用时：{(time.time()-time0):.4f}s')
         return x.squeeze(dim=1)
-    
-        # x = self.swinunet(x,discretized_freq)
-        # checksize(x)
-        # return x.squeeze(dim=1)
 
     @beartype
     def forward(
@@ -779,6 +825,7 @@ class MeshEncoderDecoder(Module):
         lgrcs=False,
         gama=0.001,
         beta=1.0,
+        loss_type='L1',
     ):
         # t.toc('  刚进来',restart=True)
         
@@ -836,8 +883,7 @@ class MeshEncoderDecoder(Module):
                 # logger.info(f'再变回去的GT:{torch.pow(10, GT)[0]}')
                 # GT = torch.pow(10, GT) #反变换在这里
             #------------------------------------------------------------------------
-            TVL1loss = TVL1Loss(beta=beta,gama=gama) #我草 发现一个错误  pixel_dif1 = images[1:, :, :] - images[:-1, :, :] 但是GT.shape = torch.Size([1, 360, 720])，第一项是batchsize。。。
-            loss = TVL1loss(decoded,GT) #/(GT.shape[0]) #平均了batch的loss 不需要手动平均。。自动会平均的
+            loss = loss_fn(decoded, GT, loss_type=loss_type, gama=gama)
             # print('TVL1loss:')
             # tic = toc(tic)
             
@@ -852,7 +898,7 @@ class MeshEncoderDecoder(Module):
                 psnr_list = psnr(decoded, GT)
                 # print('psnrssim:')
                 # tic = toc(tic)
-                ssim_list = ssim(decoded, GT)
+                ssim_list = myssim(decoded, GT)
                 # tic = toc(tic)
                 mean_psnr = psnr_list.mean()
                 # tic = toc(tic)
@@ -866,14 +912,10 @@ class MeshEncoderDecoder(Module):
                 minus = decoded - GT
                 # mse = ((minus) ** 2).sum() / GT.numel() #感觉是这个除少了，是不是没除batch GT.numel()=2592000没除少啊。。
                 mse = ((minus) ** 2).mean() #111 就是一样的
-                # if mse==mse2:
-                #     print(111)
-                # else:
-                #     print(f'mse:{mse},mse2:{mse2}')
                 nmse = mse / torch.var(GT)
                 rmse = torch.sqrt(mse)
                 l1 = (decoded-GT).abs().mean()
-                percentage_error = (minus / (GT + 1e-8)).abs().mean() * 100
+                percentage_error = (minus / (GT + 1e-4)).abs().mean() * 100
 
             # logger.info(f"PSNR: {psnr_list} , Mean PSNR: {mean_psnr:.2f}, SSIM: {ssim_list}, Mean SSIM: {mean_ssim:.4f}")
             # print('mean_mse:')

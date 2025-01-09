@@ -89,8 +89,8 @@ def ssim(img1, img2, window_size=11, size_average=False):
     sigma12 = F.conv2d(img1 * img2, window, padding=window_size//2, groups=channel) - mu1_mu2
 
     # 计算每张图片的最大值，并根据最大值计算C1和C2
-    gtmax = img1.view(img1.size(0), -1).max(dim=1)[0]
-    demax = img2.view(img2.size(0), -1).max(dim=1)[0]
+    gtmax = img1.reshape(img1.size(0), -1).max(dim=1)[0]
+    demax = img2.reshape(img2.size(0), -1).max(dim=1)[0]
     maxx = torch.max(gtmax, demax)
     C1 = (0.01 * maxx) ** 2
     C2 = (0.03 * maxx) ** 2

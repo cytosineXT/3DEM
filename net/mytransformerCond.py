@@ -3,6 +3,7 @@ from typing import Optional, Any, Union, Callable
 
 import torch
 import warnings
+from torch import nn
 from torch import Tensor
 from torch.nn import functional as F
 from torch.nn.modules.module import Module
@@ -12,6 +13,7 @@ from torch.nn.init import xavier_uniform_
 from torch.nn.modules.dropout import Dropout
 from torch.nn.modules.linear import Linear
 from torch.nn.modules.normalization import LayerNorm
+from functools import partial
 
 from net.utils import checksize
 
@@ -1000,18 +1002,59 @@ class TransformerWithPooling(Module):
             [TransformerEncoderLayer(d_model, nhead, dim_feedforward, activation=activation)
              for _ in range(num_layers)]
         )
+            # torch.Size([18000, 10, 576])
+            # torch.Size([9000, 10, 576])
+            # torch.Size([4500, 10, 576])
+            # torch.Size([2250, 10, 576])
+            # torch.Size([1125, 10, 576])
+            # torch.Size([562, 10, 576])
+        self.discretize_emfreq = partial(discretize, num_discrete = 512, continuous_range = (0.,1.0))
+        self.condfreqlayers = ModuleList([
+            nn.Embedding(512, 18000),
+            nn.Embedding(512, 9000), 
+            nn.Embedding(512, 4500), 
+            nn.Embedding(512, 2250),
+            nn.Embedding(512, 1125),
+            nn.Embedding(512, 562),]
+        )
+        self.condanglelayers = ModuleList([
+            nn.Linear(2, 18000),
+            nn.Linear(2, 9000),
+            nn.Linear(2, 4500),
+            nn.Linear(2, 2250),
+            nn.Linear(2, 1125),
+            nn.Linear(2, 562),]
+        )
+        # self.condfreqlayers = ModuleList(
+        #     emfreq_embed1 = nn.Embedding(512, 18000),
+        #     emfreq_embed2 = nn.Embedding(512, 9000), 
+        #     emfreq_embed3 = nn.Embedding(512, 4500), 
+        #     emfreq_embed4 = nn.Embedding(512, 2250),
+        #     emfreq_embed5 = nn.Embedding(512, 1125),
+        #     emfreq_embed6 = nn.Embedding(512, 562),
+        # )
+        # self.condanglelayers = ModuleList(
+        #     incident_angle_linear1 = nn.Linear(2, 18000),
+        #     incident_angle_linear2 = nn.Linear(2, 9000),
+        #     incident_angle_linear3 = nn.Linear(2, 4500),
+        #     incident_angle_linear4 = nn.Linear(2, 2250),
+        #     incident_angle_linear5 = nn.Linear(2, 1125),
+        #     incident_angle_linear6 = nn.Linear(2, 562),
+        # )
         # self.finallayer = TransformerEncoderQueryVectorLayer(d_model, nhead, dim_feedforward, activation=activation)
         self.pool_size = pool_size
 
-    def forward(self, src):
+    def forward(self, src, in_em, lg_freq, device):
         output = src
-        
-        for layer in self.layers:
-            # print(1)
+        in_angle = torch.stack([in_em[1]/180, in_em[2]/360]).t().float().unsqueeze(1).to(device)
+        discretized_freq = self.discretize_emfreq(lg_freq)
+        for i,layer in enumerate(self.layers):
+            condfreq=self.condfreqlayers[i](discretized_freq).permute(1, 0).unsqueeze(-1)
+            condangle=self.condanglelayers[i](in_angle).permute(2, 0, 1)
+            output = output+condangle+condfreq #自带广播操作
             output = layer(output)
-            # Apply pooling to reduce sequence length
             output = self.pooling(output)
-            checksize(output)
+            # checksize(output)
         return output
 
     def pooling(self, x):
@@ -1022,3 +1065,15 @@ class TransformerWithPooling(Module):
         x = F.adaptive_max_pool1d(x, new_seq_len)  # (batch_size, new_seq_len, d_model)
         x = x.reshape(x.shape[-1], -1, x.shape[0])  # 再变回去torch.Size([22500, 1, 576]) (new_seq_len, batch_size, d_model)
         return x
+
+def discretize(
+    t,
+    continuous_range,
+    num_discrete=128
+): 
+    lo, hi = continuous_range
+    assert hi > lo
+    t = (t - lo) / (hi - lo)
+    t *= num_discrete
+    t -= 0.5
+    return t.round().long().clamp(min = 0, max = num_discrete - 1)

@@ -38,6 +38,11 @@ def generate_rcs_curve(device, plane1, weight, f, save_path, batch_size=1):
     theta = 90  # theta 固定为 90°
     phi_values = range(0, 361, 1)  # phi 从 0° 到 360°
     # phi_values = range(0, 10, 1)  # 测试用
+    # /home/ljm/workspace/datasets/mulbb7c_mie_train
+    # /home/ljm/workspace/datasets/mulbb7c_mie_pretrain
+    # /home/ljm/workspace/datasets/mulbb7c_mie_val
+    GT_train = {}
+    GT_val = {}
 
     # 推理 RCS 值
     rcs_data = []
@@ -47,7 +52,7 @@ def generate_rcs_curve(device, plane1, weight, f, save_path, batch_size=1):
         freq = float(f)
 
         # 创建输入列表
-        in_em = [[plane1], torch.tensor([theta]), torch.tensor([phi-90]), torch.tensor([f])]
+        in_em = [[plane1], torch.tensor([theta]), torch.tensor([phi]), torch.tensor([f])]
 
         with torch.no_grad():
             rcs_value = autoencoder(
@@ -66,7 +71,7 @@ def generate_rcs_curve(device, plane1, weight, f, save_path, batch_size=1):
     rcs_data_db = 10 * np.log10(np.maximum(rcs_data, 1e-10))  # 避免 log(0)
 
     # 准备绘图数据
-    alpha_values = np.deg2rad(np.array(phi_values))  # 将 phi 转换为弧度
+    alpha_values = np.deg2rad(np.array(phi_values)-90)  # 将 phi 转换为弧度
     # alpha_values = np.deg2rad(np.array(phi_values) + 90)  # 将 phi 转换为弧度并加90度
 
     # 绘制极坐标图
@@ -89,17 +94,21 @@ def generate_rcs_curve(device, plane1, weight, f, save_path, batch_size=1):
 if __name__ == "__main__":
     device = torch.device("cuda:1")
     # device = torch.device("cpu")
-    weight = "/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1222_pretrain_bb7c_seed77_maxloss0.0005_cuda:0_p1818s6923/last.pt"  # 网络权重路径
+    weight = "/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1222_pretrain_bb7c_seed77_maxloss0.0005_cuda:0_p1818s6923m1753/last.pt"  # 网络权重路径
     # weight = "/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/2346p2004.pt"  # 网络权重路径
     lsp = ['bb7c']
     # lsp = ['bb7c','b943','b979','baa9','b7fd']
     # plane1 = "bb7c"  # 在此指定飞机型号
-    lsf = np.arange(0.01, 0.3, 0.01)
+    # lsf = np.arange(0.01, 0.3, 0.01)
     # lsf = [0.11,0.15,0.16,0.18,0.25,0.3]  # 指定频率列表 (GHz)
     # lsf = [0.001, 0.01, 0.1, 0.15,  1]  # 指定频率列表 (GHz)
+    lsf = [0.15]  # 指定频率列表 (GHz)
     # f = 0.15  # 指定频率 (GHz)
 
     for plane1 in lsp:
         for f in lsf:
-            save_path = f"./output/rcs360/range0.01_0.3/{plane1}_p1818s6923_rcs_characteristic_xoycurve_f{f}.png"
+            save_path = f"./output/rcs3602/{plane1}_p1818s6923_rcs_characteristic_xoycurve_f{f}.png"
             generate_rcs_curve(device, plane1, weight, f, save_path)
+# /home/ljm/workspace/datasets/mulbb7c_mie_pretrain 训练用这个训练的
+# /home/ljm/workspace/datasets/mulbb7c_mie_train 这里有完整的，除去pretrain里的其他都可以用来验证
+# /home/ljm/workspace/datasets/mulbb7c_mie_val 正儿八经验证集
