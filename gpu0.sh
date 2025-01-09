@@ -1,6 +1,0 @@
-# python NNtrain_arg.py --seed 77 --gama 0.0005 --cuda 'cuda:0' --trainname 'mul2346_50p50p' --rcsdir '/home/jiangxiaotian/datasets/mul2346_mie_50train' --valdir '/home/jiangxiaotian/datasets/mul2346_mie_val7' --pretrainweight '/home/jiangxiaotian/workspace/3DEM/output/train/1220_finetune_mul2346_50p_seed77_maxloss0.0005_cuda:0_/last.pt' --use_preweight True
-
-# python NNtrain_arg.py --seed 77 --gama 0.0005 --cuda 'cuda:0' --trainname 'mul3467' --rcsdir '/home/jiangxiaotian/datasets/mul3467_mie_train' --valdir '/home/jiangxiaotian/datasets/mul3467_mie_val7' --pretrainweight '/home/jiangxiaotian/workspace/3DEM/output/train/1218_pretrain_mul3467_seed77_maxloss0.0005_cuda:1_p1851s7093/last.pt' --use_preweight True
-# python NNtrain_arg.py --seed 77 --gama 0.0005 --cuda 'cuda:0' --trainname 'mul3467' --rcsdir '/home/jiangxiaotian/datasets/mul3467_mie_50train' --valdir '/home/jiangxiaotian/datasets/mul3467_mie_val7' --pretrainweight '/home/jiangxiaotian/workspace/3DEM/output/train/1218_pretrain_mul3467_seed77_maxloss0.0005_cuda:1_p1851s7093/last.pt' --use_preweight True
-
-python NNtrain_arg.py --seed 77 --cuda 'cuda:0' --gama 0.0005 --trainname 'bb7c_noneckcond' --folder 'ablation' --batch 10 --rcsdir '/home/jiangxiaotian/datasets/pbb7c_mie_pretrain' --valdir '/home/jiangxiaotian/datasets/pbb7c_mie_val'
