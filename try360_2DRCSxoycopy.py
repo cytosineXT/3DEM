@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from net.jxtnet_Transupconv import MeshEncoderDecoder
+from net.jxtnet_Transupconv0 import MeshEncoderDecoder
 from net.utils import find_matching_files, process_files
 
 def generate_rcs_curve(device, plane1, weight, f, save_path, batch_size=1):
@@ -19,7 +19,7 @@ def generate_rcs_curve(device, plane1, weight, f, save_path, batch_size=1):
         batch_size (int): 批量大小。
     """
     # 固定飞机模型目录
-    plane_obj_dir = "/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/planes"
+    plane_obj_dir = "planes"
 
     # 初始化网络模型
     autoencoder = MeshEncoderDecoder(
@@ -42,7 +42,7 @@ def generate_rcs_curve(device, plane1, weight, f, save_path, batch_size=1):
     rcs_data = []
     for phi in tqdm(phi_values, desc="推理 RCS 值", ncols=70):
         # 构造输入
-        in_em = [[plane1], torch.tensor([theta]), torch.tensor([phi-90]), torch.tensor([f])]
+        in_em = [[plane1], torch.tensor([theta]), torch.tensor([phi]), torch.tensor([f])] #发现在这里把phi-90也能转，但是我都没有负值输入，说明真学到东西了！
 
         with torch.no_grad():
             rcs_value = autoencoder(
@@ -53,8 +53,9 @@ def generate_rcs_curve(device, plane1, weight, f, save_path, batch_size=1):
                 device=device,
                 lgrcs=False,
             )
-        # rcs_value = rcs_value.mean()  # 提取平均 RCS 值
-        rcs_value = rcs_value[theta*2,phi*2]  # 提取该方向 RCS 值（单站）
+        rcs_value = rcs_value.mean() # 提取平均 RCS 值
+        # rcs_value = rcs_value.sum() # 提取和 RCS 值
+        # rcs_value = rcs_value.squeeze(0)[theta*2,phi*2]  # 提取该方向 RCS 值（单站）
         rcs_data.append(rcs_value)
     rcs_data_db = 10 * np.log10(np.maximum(rcs_data, 1e-10))  # 避免 log(0)
 
@@ -63,7 +64,7 @@ def generate_rcs_curve(device, plane1, weight, f, save_path, batch_size=1):
     full_rcs_data_db[:181] = rcs_data_db  # 前 180 度的 RCS 数据
     full_rcs_data_db[180:] = rcs_data_db[::-1]  # 后 180 度的 RCS 数据对称
 
-    alpha_values = np.deg2rad(np.arange(0, 361))  # 0 到 360 度的角度
+    alpha_values = np.deg2rad(np.arange(0, 361)+90)  # 0 到 360 度的角度 这里-90？
 
     # 绘制极坐标图
     plt.figure(figsize=(6, 6))
@@ -83,14 +84,15 @@ def generate_rcs_curve(device, plane1, weight, f, save_path, batch_size=1):
     plt.show()
 
 if __name__ == "__main__":
-    device = torch.device("cuda:0")
-    # device = torch.device("cpu")
-    weight = "/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1222_pretrain_bb7c_seed77_maxloss0.0005_cuda:0_p1818s6923/last.pt"  # 网络权重路径
+    # device = torch.device("cuda:0")
+    device = torch.device("cpu")
+    # weight = "output/1218bb7c50train_m0989.pt"  # 网络权重路径
+    weight = "output/bb7cm1753.pt"  # 网络权重路径
     lsp = ['bb7c']
     # lsp = ['bb7c','b943','b979','baa9','b7fd']
-    lsf = [0.15]  # 指定频率列表 (GHz)
+    # lsf = [0.15]  # 指定频率列表 (GHz)
     # lsf = [0.001, 0.01, 0.1, 0.15,  1]  # 指定频率列表 (GHz)
     for plane1 in lsp:
         for f in lsf:
-            save_path = f"./output/rcs360/{plane1}_p1818s6923_singleStation_rcs_characteristic_xoycurve_f{f}.png"
+            save_path = f"./output/rcs360/{plane1}_m1753_xoycp_oldnet_alpha+90_f{f}.png"
             generate_rcs_curve(device, plane1, weight, f, save_path)

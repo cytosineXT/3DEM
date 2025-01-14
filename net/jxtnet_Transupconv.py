@@ -102,9 +102,9 @@ def loss_fn(decoded, GT, loss_type='L1', gama=0.01, delta=0.5):
     elif loss_type == 'per':
         loss = percentage_error
     elif loss_type == 'ssim':
-        loss = 1 - torch.stack([ssim(decoded[i].unsqueeze(0), GT[i].unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
+        loss = 1 - torch.stack([ssim(decoded[i].unsqueeze(0).unsqueeze(0), GT[i].unsqueeze(0).unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
     elif loss_type == 'msssim':
-        loss = 1 - torch.stack([ms_ssim(decoded[i].unsqueeze(0), GT[i].unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
+        loss = 1 - torch.stack([ms_ssim(decoded[i].unsqueeze(0).unsqueeze(0), GT[i].unsqueeze(0).unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
 
     elif loss_type == 'mse_l1':
         loss = delta * mse + (1 - delta) * l1
@@ -113,16 +113,16 @@ def loss_fn(decoded, GT, loss_type='L1', gama=0.01, delta=0.5):
     elif loss_type == 'l1_nmse':
         loss = delta * l1 + (1 - delta) * nmse
     elif loss_type == 'mse_ssim':
-        ssim_val = torch.stack([ssim(decoded[i].unsqueeze(0), GT[i].unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
+        ssim_val = torch.stack([ssim(decoded[i].unsqueeze(0).unsqueeze(0), GT[i].unsqueeze(0).unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
         loss = delta * mse + (1 - delta) * (1 - ssim_val)
     elif loss_type == 'mse_msssim':
-        msssim_val = torch.stack([ms_ssim(decoded[i].unsqueeze(0), GT[i].unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
+        msssim_val = torch.stack([ms_ssim(decoded[i].unsqueeze(0).unsqueeze(0), GT[i].unsqueeze(0).unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
         loss = delta * mse + (1 - delta) * (1 - msssim_val)
     elif loss_type == 'l1_ssim':
-        ssim_val = torch.stack([ssim(decoded[i].unsqueeze(0), GT[i].unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
+        ssim_val = torch.stack([ssim(decoded[i].unsqueeze(0).unsqueeze(0), GT[i].unsqueeze(0).unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
         loss = delta * l1 + (1 - delta) * (1 - ssim_val)
     elif loss_type == 'l1_msssim':
-        msssim_val = torch.stack([ms_ssim(decoded[i].unsqueeze(0), GT[i].unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
+        msssim_val = torch.stack([ms_ssim(decoded[i].unsqueeze(0).unsqueeze(0), GT[i].unsqueeze(0).unsqueeze(0), data_range=max(decoded[i].max().item(), GT[i].max().item()), size_average=False) for i in range(decoded.size(0))]).squeeze().mean()
         loss = delta * l1 + (1 - delta) * (1 - msssim_val)
     else:
         print(f"Unsupported loss type: {loss_type}, will use l1 loss")
@@ -262,32 +262,83 @@ class ContrastiveLoss(nn.Module):
             # If no pairs were found, return zero loss
             return torch.tensor(0.0, device=rcs.device)
 
-def median_filter2d(img, kernel_size=5):
-    pad_size = kernel_size // 2    # 计算 padding 大小
-    img_padded = F.pad(img, (pad_size, pad_size, pad_size, pad_size), mode='reflect')    # 对图像进行 padding
-    batch_size, channels, height, width = img_padded.shape    # 获取图像的尺寸
-    unfolded = F.unfold(img_padded, kernel_size=kernel_size)    # 展开图像矩阵
-    unfolded = unfolded.view(batch_size, channels, kernel_size * kernel_size, -1)    # 计算中值
-    median = unfolded.median(dim=2)[0]
-    median = median.view(batch_size, channels, height - 2 * pad_size, width - 2 * pad_size)    # 恢复图像尺寸
-    return median
+# def median_filter2d(img, kernel_size=5):
+#     pad_size = kernel_size // 2    # 计算 padding 大小
+#     img_padded = F.pad(img, (pad_size, pad_size, pad_size, pad_size), mode='reflect')    # 对图像进行 padding
+#     batch_size, channels, height, width = img_padded.shape    # 获取图像的尺寸
+#     unfolded = F.unfold(img_padded, kernel_size=kernel_size)    # 展开图像矩阵
+#     unfolded = unfolded.view(batch_size, channels, kernel_size * kernel_size, -1)    # 计算中值
+#     median = unfolded.median(dim=2)[0]
+#     median = median.view(batch_size, channels, height - 2 * pad_size, width - 2 * pad_size)    # 恢复图像尺寸
+#     return median
 
-def gaussian_kernel(size, sigma, device):
-    """生成一个高斯核"""
-    kernel = torch.tensor([[(1/(2.0*np.pi*sigma**2)) * np.exp(-((x - size//2)**2 + (y - size//2)**2)/(2*sigma**2))
-                            for x in range(size)] for y in range(size)]).float().to(device)
-    kernel /= kernel.sum()
-    return kernel.unsqueeze(0).unsqueeze(0)
+# def gaussian_kernel(size, sigma, device):
+#     """生成一个高斯核"""
+#     kernel = torch.tensor([[(1/(2.0*np.pi*sigma**2)) * np.exp(-((x - size//2)**2 + (y - size//2)**2)/(2*sigma**2))
+#                             for x in range(size)] for y in range(size)]).float().to(device)
+#     kernel /= kernel.sum()
+#     return kernel.unsqueeze(0).unsqueeze(0)
 
-def gaussian_filter2d(img, kernel_size=5, sigma=4.0, device='cuda:0'):
-    """应用高斯滤波"""
-    kernel = gaussian_kernel(kernel_size, sigma, device)
-    channels = img.shape[1]
-    kernel = kernel.repeat(channels, 1, 1, 1)
-    padding = kernel_size // 2
-    filtered_img = F.conv2d(img, kernel, padding=padding, groups=channels)
-    return filtered_img
+# def gaussian_filter2d(img, kernel_size=5, sigma=4.0, device='cuda:0'):
+#     """应用高斯滤波"""
+#     kernel = gaussian_kernel(kernel_size, sigma, device)
+#     channels = img.shape[1]
+#     kernel = kernel.repeat(channels, 1, 1, 1)
+#     padding = kernel_size // 2
+#     filtered_img = F.conv2d(img, kernel, padding=padding, groups=channels)
+#     return filtered_img
+class LearnableMedianFilter(nn.Module):
+    def __init__(self, kernel_size=5):
+        super(LearnableMedianFilter, self).__init__()
+        self.kernel_size = kernel_size
 
+    def forward(self, img):
+        """应用中值滤波"""
+        pad_size = self.kernel_size // 2  # 计算 padding 大小
+        img_padded = F.pad(img, (pad_size, pad_size, pad_size, pad_size), mode='reflect')  # 对图像进行 padding
+        batch_size, channels, height, width = img_padded.shape  # 获取图像的尺寸
+        unfolded = F.unfold(img_padded, kernel_size=self.kernel_size)  # 展开图像矩阵
+        unfolded = unfolded.view(batch_size, channels, self.kernel_size * self.kernel_size, -1)  # 计算中值
+        median = unfolded.median(dim=2)[0]
+        median = median.view(batch_size, channels, height - 2 * pad_size, width - 2 * pad_size)  # 恢复图像尺寸
+        return median
+class LearnableGaussianFilter(nn.Module):
+    def __init__(self, kernel_size=5, init_sigma=4.0, device='cuda:0'):
+        super(LearnableGaussianFilter, self).__init__()
+        self.kernel_size = kernel_size
+        self.sigma = nn.Parameter(torch.tensor(init_sigma, dtype=torch.float32))  # 可学习的 sigma
+        self.device = device
+
+    def gaussian_kernel(self):
+        """生成一个高斯核"""
+        size = self.kernel_size
+        sigma = self.sigma
+        kernel = torch.tensor([[(1/(2.0*np.pi*sigma**2)) * torch.exp(-((x - size//2)**2 + (y - size//2)**2)/(2*sigma**2))
+                               for x in range(size)] for y in range(size)]).float().to(self.device)
+        kernel /= kernel.sum()
+        return kernel.unsqueeze(0).unsqueeze(0)
+
+    def forward(self, img):
+        """应用高斯滤波"""
+        kernel = self.gaussian_kernel()
+        channels = img.shape[1]
+        kernel = kernel.repeat(channels, 1, 1, 1)
+        padding = self.kernel_size // 2
+        filtered_img = F.conv2d(img, kernel, padding=padding, groups=channels)
+        return filtered_img
+class SmoothingLayer(nn.Module):
+    def __init__(self, kernel_size=5, init_sigma=4.0, device='cuda:0'):
+        super(SmoothingLayer, self).__init__()
+        self.median_filter = LearnableMedianFilter(kernel_size=kernel_size)
+        self.gaussian_filter = LearnableGaussianFilter(kernel_size=kernel_size, init_sigma=init_sigma, device=device)
+
+    def forward(self, img):
+        """应用中值滤波和高斯滤波"""
+        img = img.unsqueeze(1)  # 添加 channel 维度
+        img = self.median_filter(img)  # 应用中值滤波
+        img = self.gaussian_filter(img)  # 应用高斯滤波
+        img = img.squeeze(1)  # 移除 channel 维度
+        return img
 
 def exists(v):
     return v is not None
@@ -548,6 +599,8 @@ class MeshEncoderDecoder(Module):
         self.emfreq_embed4 = nn.Embedding(num_discrete_emfreq, 180*360) #jxt
         self.incident_angle_linear5 = nn.Linear(2, 360*720)
         self.emfreq_embed5 = nn.Embedding(num_discrete_emfreq, 360*720) #jxt
+
+        self.smoothing_layer = SmoothingLayer(kernel_size=5, init_sigma=4.0, device=device)
 
         t.toc('  初始化结束',restart=True)
 
@@ -826,6 +879,7 @@ class MeshEncoderDecoder(Module):
         gama=0.001,
         beta=1.0,
         loss_type='L1',
+        smooth=False
     ):
         # t.toc('  刚进来',restart=True)
         
@@ -858,16 +912,13 @@ class MeshEncoderDecoder(Module):
         # print('decoder:')
         # tic = toc(tic) #耗时0.0109s
 #------------------------------------------------------------------出Decoder了，后面都是算loss等后处理---------------------------------------------------------------------
-        #平滑后处理：中值滤波+高斯滤波+修改后的smoothloss
+        #平滑后处理：中值滤波+高斯滤波
         # decoded = decoded.unsqueeze(1)  # 添加 channel 维度
         # decoded = median_filter2d(decoded, kernel_size=5)# 应用中值滤波
-        # # decoded = median_filter2d(decoded, kernel_size=5)# 应用中值滤波
-        # # print('中值滤波')
-        # # tic = toc(tic)
         # decoded = gaussian_filter2d(decoded, kernel_size=5, sigma=4, device=device)#两个都用 这个效果好
         # decoded = decoded.squeeze(1)
-        # # print('高斯滤波:')
-        # # tic = toc(tic)
+        if smooth == True:
+            decoded = self.smoothing_layer(decoded)
 
         if GT == None:
             # tic = toc(tic)

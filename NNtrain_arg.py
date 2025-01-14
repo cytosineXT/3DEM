@@ -27,7 +27,7 @@ import argparse
 def setup_seed(seed):
      torch.manual_seed(seed)
      torch.cuda.manual_seed_all(seed)
-     torch.backends.cudnn.benchmark = False  # 关闭优化搜索
+    #  torch.backends.cudnn.benchmark = False  # 关闭优化搜索
      torch.backends.cudnn.deterministic = True
      np.random.seed(seed)
      random.seed(seed)
@@ -37,6 +37,7 @@ def parse_args():
     parser.add_argument('--epoch', type=int, default=60, help='Number of training epochs')
     parser.add_argument('--batch', type=int, default=10, help='batchsize')
     parser.add_argument('--use_preweight', type=bool, default=False, help='Whether to use pretrained weights')
+    parser.add_argument('--smooth', type=bool, default=False, help='Whether to use pretrained weights')
     parser.add_argument('--draw', type=bool, default=True, help='Whether to enable drawing')
 
     parser.add_argument('--trainname', type=str, default='bb7c', help='logname')
@@ -75,6 +76,7 @@ args = parse_args()
 # 使用命令行参数
 epoch = args.epoch
 use_preweight = args.use_preweight
+smooth = args.smooth
 draw = args.draw
 rcsdir = args.rcsdir
 valdir = args.valdir
@@ -126,7 +128,7 @@ if mode == "fasttest":
     # lr_time = 2*epoch
     lr_time = epoch
 else:
-    lr_time = epoch
+    lr_time = 5*epoch
 
 encoder_layer = 6
 decoder_outdim = 12  # 3S 6M 12L
@@ -134,7 +136,7 @@ paddingsize = 18000
 
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "output" / f"{folder}" /f'{date}_{name}{loss_type}_e{epoch}lr{learning_rate}_gama{gama}_{cudadevice}_'), exist_ok=False))##
+save_dir = str(increment_path(Path(ROOT / "output" / f"{folder}" /f'{date}_{name}{loss_type}_{mode}_e{epoch}lr{learning_rate}_sd{seed}_{cudadevice}_'), exist_ok=False))##
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 maxsavedir = os.path.join(save_dir,'minmse.pt')
@@ -240,7 +242,8 @@ for i in range(epoch):
             lgrcs = lgrcs,
             gama=gama,
             beta=beta,
-            loss_type=loss_type
+            loss_type=loss_type,
+            smooth=smooth
         )
         # print('--推理总时长:')
         # tic=toc(tic)
@@ -448,7 +451,10 @@ for i in range(epoch):
                 valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
     else :
         if (i+1) % 1 == 0 or i == -1:
-            valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+            if (i+1) % 10 == 0 or i+1==epoch:
+                valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+            else:
+                valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
 
     # if maxpsnr < valpsnr:
     #     maxpsnr = valpsnr
