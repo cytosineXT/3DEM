@@ -3,6 +3,7 @@ import torch
 import time
 from tqdm import tqdm
 from net.jxtnet_Transupconv import MeshEncoderDecoder
+# from net.jxtnet_Transupconv4 import MeshEncoderDecoder
 # from net.jxtnet_Transupconv_fan import MeshEncoderDecoder
 # from net.jxtnet_pureTrans import MeshEncoderDecoder
 import torch.utils.data.dataloader as DataLoader
@@ -27,7 +28,7 @@ import argparse
 def setup_seed(seed):
      torch.manual_seed(seed)
      torch.cuda.manual_seed_all(seed)
-     torch.backends.cudnn.benchmark = False  # 关闭优化搜索
+    #  torch.backends.cudnn.benchmark = False  # 关闭优化搜索
      torch.backends.cudnn.deterministic = True
      np.random.seed(seed)
      random.seed(seed)
@@ -37,22 +38,23 @@ def parse_args():
     parser.add_argument('--epoch', type=int, default=60, help='Number of training epochs')
     parser.add_argument('--batch', type=int, default=10, help='batchsize')
     parser.add_argument('--use_preweight', type=bool, default=False, help='Whether to use pretrained weights')
+    parser.add_argument('--smooth', type=bool, default=False, help='Whether to use pretrained weights')
     parser.add_argument('--draw', type=bool, default=True, help='Whether to enable drawing')
 
     parser.add_argument('--trainname', type=str, default='bb7c', help='logname')
     parser.add_argument('--folder', type=str, default='test', help='logname')
     parser.add_argument('--loss', type=str, default='L1', help='logname')
-    parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest', help='Path to rcs directory') #liang
-    parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/traintest', help='Path to validation directory') #liang
-    # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest', help='Path to rcs directory')
-    # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest', help='Path to validation directory')
+    # parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest', help='Path to rcs directory') #liang
+    # parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/traintest', help='Path to validation directory') #liang
+    parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest', help='Path to rcs directory')
+    parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest', help='Path to validation directory')
     # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_pretrain', help='Path to rcs directory')
     # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_val', help='Path to validation directory')
     # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/mul_mie_pretrain', help='Path to rcs directory')
     # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_val', help='Path to validation directory')
     parser.add_argument('--pretrainweight', type=str, default='/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1129_TransConv_pretrain_b7fd_nofilter/last.pt', help='Path to pretrained weights')
 
-    parser.add_argument('--seed', type=int, default=77, help='Random seed for reproducibility')
+    parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility')
     parser.add_argument('--gama', type=float, default=0.0005, help='Loss threshold or gamma parameter')
     parser.add_argument('--beta', type=float, default=1.0, help='Loss threshold or gamma parameter')
     parser.add_argument('--lr', type=float, default=0.001, help='Loss threshold or gamma parameter')
@@ -75,6 +77,7 @@ args = parse_args()
 # 使用命令行参数
 epoch = args.epoch
 use_preweight = args.use_preweight
+smooth = args.smooth
 draw = args.draw
 rcsdir = args.rcsdir
 valdir = args.valdir
@@ -89,6 +92,19 @@ folder = args.folder
 batchsize = args.batch
 loss_type = args.loss
 
+# setup_seed(seed)
+if args.seed is not None:
+    # 如果提供了 seed，则使用该 seed
+    seed = args.seed
+    setup_seed(args.seed)
+    print(f"使用提供的随机数种子: {args.seed}")
+else:
+    # 如果没有提供 seed，则生成一个随机 seed 并记录
+    random_seed = torch.randint(0, 10000, (1,)).item()  # 生成一个随机 seed
+    setup_seed(random_seed)
+    print(f"未提供随机数种子，使用随机生成的种子: {random_seed}")
+    seed = random_seed#记录用
+
 if 'pretrain' in rcsdir:
     mode = 'pretrain'
 elif 'test' in rcsdir:
@@ -98,8 +114,6 @@ else:
         mode = 'finetune'
     else:
         mode = 'train'
-# 设置随机种子
-setup_seed(seed)
 
 # 其他固定参数
 accumulation_step = 8
@@ -122,11 +136,12 @@ shuffle = True
 multigpu = False
 alpha = 0.0
 # learning_rate = 0.001  # 初始学习率
-if mode == "fasttest":
-    # lr_time = 2*epoch
-    lr_time = epoch
-else:
-    lr_time = epoch
+# if mode == "fasttest":
+#     # lr_time = 2*epoch
+#     lr_time = epoch
+# else:
+#     lr_time = epoch
+lr_time = epoch
 
 encoder_layer = 6
 decoder_outdim = 12  # 3S 6M 12L
@@ -134,7 +149,7 @@ paddingsize = 18000
 
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "output" / f"{folder}" /f'{date}_{name}{loss_type}_e{epoch}lr{learning_rate}_gama{gama}_{cudadevice}_'), exist_ok=False))##
+save_dir = str(increment_path(Path(ROOT / "output" / f"{folder}" /f'{date}_{name}{loss_type}_{mode}_e{epoch}lr{learning_rate}_sd{seed}sm{smooth}_{cudadevice}_'), exist_ok=False))##
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 maxsavedir = os.path.join(save_dir,'minmse.pt')
@@ -152,6 +167,7 @@ logger = get_logger(logdir)
 # logger.info(f'使用net.jxtnet_pureTrans')
 # logger.info(f'使用net.jxtnet_Transupconv')
 logger.info(args)
+logger.info(f'seed:{seed}')
 # logger.info(f'使用jxtnet_transformerEncoder.py')
 # logger.info(f'参数设置：batchsize={batchsize}, epoch={epoch}, use_preweight={use_preweight}, cudadevice={cudadevice}, learning_rate={learning_rate}, lr_time={lr_time}, shuffle={shuffle}, gama={gama}, seed={seed}, rcsdir = {rcsdir}, valdir = {valdir}, pretrainweight = {pretrainweight}')
 logger.info(f'数据集用{rcsdir}训练')
@@ -240,7 +256,8 @@ for i in range(epoch):
             lgrcs = lgrcs,
             gama=gama,
             beta=beta,
-            loss_type=loss_type
+            loss_type=loss_type,
+            smooth=smooth
         )
         # print('--推理总时长:')
         # tic=toc(tic)
@@ -448,7 +465,10 @@ for i in range(epoch):
                 valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
     else :
         if (i+1) % 1 == 0 or i == -1:
-            valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+            if (i+1) % 10 == 0 or i+1==epoch:
+                valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
+            else:
+                valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
 
     # if maxpsnr < valpsnr:
     #     maxpsnr = valpsnr

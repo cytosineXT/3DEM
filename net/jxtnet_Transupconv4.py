@@ -845,18 +845,18 @@ class MeshEncoderDecoder(Module):
         x = self.upconv3(x)
         x = self.bn3(x)
         x = F.silu(x)
-        x = x + condangle5
-        x = x + condfreq5
+        # x = x + condangle5
+        # x = x + condfreq5
         x = self.conv3_1(x)
         x = self.bn3_1(x)
         x = F.silu(x)
-        x = x + condangle5
-        x = x + condfreq5
+        # x = x + condangle5
+        # x = x + condfreq5
         x = self.conv3_2(x)
         x = self.bn3_2(x)
         x = F.relu(x)
-        x = x + condangle5
-        x = x + condfreq5
+        # x = x + condangle5
+        # x = x + condfreq5
 
         x = self.conv1x1(x)
         # x = self.conv4_1(x)

@@ -240,7 +240,7 @@ def jxtget_face_coords(vertices, face_indices):
     """
     batch_size, num_faces, num_vertices_per_face = face_indices.shape#face_indices.shape=torch.Size([2, 20804, 3]),vertices.shape = torch.Size([2, 10400, 3])
     # num_coordinates = vertices.shape[-1]
-    reshaped_face_indices = face_indices.reshape(batch_size, -1)  # 做一次reshape，将face_indices变为1D张量，然后用它来索引点坐标张量 # 形状为 (b, nf*c)
+    reshaped_face_indices = face_indices.reshape(batch_size, -1).to(dtype=torch.int64)  # 做一次reshape，将face_indices变为1D张量，然后用它来索引点坐标张量 # 形状为 (b, nf*c)
     face_coords = torch.gather(vertices, 1, reshaped_face_indices.unsqueeze(-1).expand(-1, -1, vertices.shape[-1])) # 使用索引张量获取具有坐标的面
     face_coords = face_coords.reshape(batch_size, num_faces, num_vertices_per_face, -1)# 还原形状
     return face_coords
@@ -273,9 +273,11 @@ def get_derived_face_featuresjxt(
     # print(f'Derived Step4用时：{(time.time()-ticcc):.4f}s')
     # ticcc = time.time()
 
-    incident_angle_vec = polar_to_cartesian2(in_em[:,0],in_em[:,1]) #得到入射方向的xyz矢量
-    incident_angle_mtx = incident_angle_vec.unsqueeze(1).repeat(1, area.shape[1], 1) #得到入射方向的矢量矩阵torch.Size([batchsize, 33564, 3])
-    incident_freq_mtx = in_em[:,2].unsqueeze(1).unsqueeze(2).repeat(1, area.shape[1], 1) #得到入射波频率的矩阵torch.Size([1, 33564, 1]) 感觉取对数不是那个意思，对数坐标只是看起来的，不是实际上的？
+    incident_angle_vec = polar_to_cartesian2(in_em[1],in_em[2]) #得到入射方向的xyz矢量
+    # incident_angle_vec = polar_to_cartesian2(in_em[:,0],in_em[:,1]) #得到入射方向的xyz矢量
+    incident_angle_mtx = incident_angle_vec.unsqueeze(1).repeat(1, area.shape[1], 1).to(device) #得到入射方向的矢量矩阵torch.Size([batchsize, 33564, 3])
+    incident_freq_mtx = in_em[3].unsqueeze(1).unsqueeze(2).repeat(1, area.shape[1], 1).to(device) #得到入射波频率的矩阵torch.Size([1, 33564, 1]) 感觉取对数不是那个意思，对数坐标只是看起来的，不是实际上的？
+    # incident_freq_mtx = in_em[:,2].unsqueeze(1).unsqueeze(2).repeat(1, area.shape[1], 1) #得到入射波频率的矩阵torch.Size([1, 33564, 1]) 感觉取对数不是那个意思，对数坐标只是看起来的，不是实际上的？
     # print(f'Derived Step5用时：{(time.time()-ticcc):.4f}s')
     # ticcc = time.time()
 
@@ -897,7 +899,8 @@ class MeshAutoencoder(Module):
 #--------------------------------------------------------face预处理 得到特征--------------------------------------------------------------------------
         # compute derived features and embed
         # 先对内角、面积、法向量进行离散化和embedding
-        in_em[:,2]=transform_to_log_coordinates(in_em[:,2]) #频率转换为对数坐标 加在encoder里！
+        in_em[3]=transform_to_log_coordinates(in_em[3]) #频率转换为对数坐标 加在encoder里！
+        # in_em[:,2]=transform_to_log_coordinates(in_em[:,2]) #频率转换为对数坐标 加在encoder里！
 
         derived_features , in_em_angle_vec = get_derived_face_featuresjxt(face_coords, in_em, device) #这一步用了2s
         # print(f'Encoder Step1用时应该已经到头了，时间来自derive里：{(time.time()-ticc):.4f}s')
