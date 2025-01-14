@@ -2,6 +2,7 @@ import torch
 import time
 # from net.jxtnet_Transupconv_fan import MeshEncoderDecoder
 from net.jxtnet_Transupconv import MeshEncoderDecoder
+# from net.jxtnet_Transupconv4 import MeshEncoderDecoder
 # from net.jxtnet_Transupconv_ssimloss import MeshEncoderDecoder
 # from net.jxtnet_Transupconv import MeshEncoderDecoder
 # from net.jxtnet_pureTrans import MeshEncoderDecoder
@@ -214,7 +215,8 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, nmse_list, statisticdir):
     # MSE 直方图和正态分布曲线
     plt.subplot(3, 3, 1)
     # counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True, stacked=True)
-    counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', range=(0,0.75), density=True)
+    # counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', range=(0,0.75), density=True)
+    counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True)
     # print(f'counts{counts},bins{bins},patches{patches}')
 
     # fomatter=FuncFormatter(to_percent)#这里把刻度乘了100，为了得到百分比纵轴
@@ -222,9 +224,9 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, nmse_list, statisticdir):
 
     mu, std = norm.fit(mse_list)
     # x = np.linspace(-5, 15, 1000)
-    x = np.linspace(min(mse_list)-0.5, max(mse_list)+0.5, 1000)
+    x = np.linspace(min(mse_list)-0.005, max(mse_list)+0.005, 1000)
     plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
-    plt.xlim(-0.5, 1)  # 限制横坐标范围
+    plt.xlim(-0.005, 0.015)  # 限制横坐标范围
     plt.xlabel('MSE')
     # plt.ylabel('Probability of samples')
     plt.ylabel('Probability of samples (%)')
@@ -412,10 +414,10 @@ if __name__ == '__main__':
 
     # weight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/mul2347last1886.pt'
     # weight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/mul2347psnr1942ssim7328.pt'
-    weight = r'/home/jiangxiaotian/workspace/3DEM/output/train/1212_transconv_finetune_mul2347_77seed_p1942s7328/last.pt'
+    weight = r'/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/newtrain/0112_b7fdE_allCondL1_e60lr0.001_sd7smFalse_cuda:0_m0043/last.pt'
     # weight = r'/home/jiangxiaotian/workspace/3DEM/output/train/1211_transconv_pretrain_mul2347_77seed_p1714s6797/last.pt'
 
-    rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pba0f_mie_val'
+    # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pba0f_mie_val'
     # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pbaa9_mie_val'
     # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pbb7d_mie_val'
     # rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/NewPlane6/Pbbc6_mie_val'
@@ -425,12 +427,12 @@ if __name__ == '__main__':
     # rcsdir = r'/home/ljm/workspace/datasets/mulb7fd_mie_val'
     # rcsdir = r'/home/ljm/workspace/datasets/mul2_mie_val'
     # rcsdir = r'/home/jiangxiaotian/datasets/mul3467_mie_val7' #liang
-    rcsdir = r'/home/jiangxiaotian/datasets/mul2347_mie_6smallval' #liang
-
+    # rcsdir = r'/home/jiangxiaotian/datasets/mul2347_mie_6smallval' #liang
+    rcsdir = r'/mnt/SrvDataDisk/Datasets_3DEM/E/b7fdE_mie_val'
 
     from datetime import datetime
     date = datetime.today().strftime("%m%d")
-    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /f'{date}_TransConv_2347val100p_inftime'), exist_ok=False))
+    save_dir = str(increment_path(Path(ROOT / "output" / "inference" /f'{date}_TransConv_b7fdE'), exist_ok=False))
     logdir = os.path.join(save_dir,'alog.txt')
     logger = get_logger(logdir)
     epoch = -1

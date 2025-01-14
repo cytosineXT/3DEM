@@ -106,13 +106,16 @@ def ssim(img1, img2, window_size=11, size_average=False):
     else:
         return ssim_map.mean([1, 2, 3])
     
+def batch_ssim(img1, img2):
+    ssim_val = ssim(img1, img2)
+    return ssim_val
 # def batch_ssim(img1, img2):
 #     batch_size = img1.size(0)
 #     ssim_list = []
 #     for i in range(batch_size):
 #         ssim_val = ssim(img1[i].unsqueeze(0), img2[i].unsqueeze(0))
 #         ssim_list.append(ssim_val)
-    # return torch.tensor(ssim_list)
+#     return torch.tensor(ssim_list)
 
 # def psnr(img1, img2):
 #     mse = F.mse_loss(img1, img2, reduction='mean')
@@ -154,7 +157,9 @@ def psnr(img1, img2): #_with_dynamic_normalization 不带gtmax的，用两个的
     psnr = 10 * torch.log10(1.0 / mse)  # Since normalized images have max_val = 1.0
     return psnr
 
-
+def batch_psnr(img1, img2):
+    psnrr=psnr(img1,img2)
+    return psnrr
 # def batch_psnr(img1, img2):
 #     import time
 #     tic = time.time()
