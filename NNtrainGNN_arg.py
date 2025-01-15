@@ -2,16 +2,16 @@
 import torch
 import time
 from tqdm import tqdm
-from net.jxtnet_GNNn import MeshCodec
+from net.jxtnet_GNNn0115cond import MeshCodec
+# from net.jxtnet_GNNn import MeshCodec
 import torch.utils.data.dataloader as DataLoader
 import os
 import sys
-import re
 import matplotlib
 import matplotlib.pyplot as plt
 matplotlib.use('agg')
 from pathlib import Path
-from net.utils_newload import increment_path, EMRCSDataset, get_logger, get_model_memory, psnr, ssim, find_matching_files, process_files, get_x_memory#, get_tensor_memory, toc, checksize#, transform_to_log_coordinates
+from net.utils_newload import increment_path, EMRCSDataset, get_logger, get_model_memory, psnr, ssim, find_matching_files, process_files#, get_tensor_memory, toc, checksize#, transform_to_log_coordinates
 from NNvalfast_GNNnew import  plot2DRCS, valmain#, plotRCS2
 from pytictoc import TicToc
 t = TicToc()
@@ -53,7 +53,7 @@ def parse_args():
     parser.add_argument('--gama', type=float, default=0., help='0.001')
     parser.add_argument('--beta', type=float, default=0., help='0.')
     parser.add_argument('--lr', type=float, default=0.001, help='Loss threshold or gamma parameter')
-    parser.add_argument('--cuda', type=str, default='cuda:0', help='CUDA device to use')
+    parser.add_argument('--cuda', type=str, default='cuda:1', help='CUDA device to use')
     return parser.parse_args()
 
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
@@ -267,8 +267,8 @@ for i in range(epoch):
         if flag == 1:
             drawrcs = outrcs[0].unsqueeze(0)
             drawem = torch.stack(in_em0[1:]).t()[0]
-            drawGT = rcs1[0].unsqueeze(0)
-            # drawGT = rcs1[0][:-1,:].unsqueeze(0)
+            # drawGT = rcs1[0].unsqueeze(0)#用于720*361图
+            drawGT = rcs1[0][:-1,:].unsqueeze(0)#用于720*360图
             drawplane = in_em0[0][0]
             flag = 0
         for j in range(torch.stack(in_em0[1:]).t().shape[0]):
@@ -287,7 +287,7 @@ for i in range(epoch):
         plot2DRCS(rcs=drawGT.squeeze(), savedir=out2DGTpngpath, logger=logger,cutmax=None)
         GTflag = 0
         logger.info('已画GT图')
-    if i == 0 or (i+1) % 10 == 0: #存指定倍数轮时画某张图看训练效果
+    if i == 0 or (i+1) % 20 == 0: #存指定倍数轮时画某张图看训练效果
         outrcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}.png')
         out2Drcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}_psnr{p.item():.2f}_ssim{s.item():.4f}_mse{m:.4f}_2D.png')
         # plotRCS2(rcs=drawrcs, savedir=outrcspngpath, logger=logger)
@@ -413,7 +413,7 @@ for i in range(epoch):
 
     # plt.show()
     if mode == "pretrain":
-        if (i+1) % 10 == 0 or i == -1: 
+        if (i+1) % 100 == 0 or i == -1: 
         # if (i+1) % 1 == 0 or i == -1: 
             if i+1==epoch:
                 valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
@@ -421,7 +421,7 @@ for i in range(epoch):
                 valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
             
     elif mode == "fasttest":
-        if (i+1) % 1 == 0 or i == -1: 
+        if (i+1) % 100 == 0 or i == -1: 
             if i+1==epoch:
                 valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
             else:

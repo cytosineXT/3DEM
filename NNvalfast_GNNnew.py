@@ -1,10 +1,7 @@
 import torch
 import time
-from net.jxtnet_GNNn import MeshCodec
-# from ref.jxtnet_upConv3_L1 import MeshAutoencoder
-# from net.jxtnet_GNN import MeshEncoderDecoder
-# from net.jxtnet_Transupconv import MeshEncoderDecoder
-# from net.jxtnet_pureTrans import MeshEncoderDecoder
+from net.jxtnet_GNNn0115cond import MeshCodec
+# from net.jxtnet_GNNn import MeshCodec
 from net.utils_newload import increment_path, EMRCSDataset, get_logger, find_matching_files, process_files
 import torch.utils.data.dataloader as DataLoader
 # import trimesh
