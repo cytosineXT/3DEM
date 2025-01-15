@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 matplotlib.use('agg')
 from pathlib import Path
 from net.utils_newload import increment_path, EMRCSDataset, get_logger, get_model_memory, psnr, ssim, find_matching_files, process_files, get_x_memory#, get_tensor_memory, toc, checksize#, transform_to_log_coordinates
-from NNvalfast import  plot2DRCS, valmain#, plotRCS2
+from NNvalfast_GNNnew import  plot2DRCS, valmain#, plotRCS2
 from pytictoc import TicToc
 t = TicToc()
 t.tic()
@@ -23,7 +23,7 @@ import argparse
 def setup_seed(seed):
      torch.manual_seed(seed)
      torch.cuda.manual_seed_all(seed)
-    #  torch.backends.cudnn.benchmark = False  # 关闭优化搜索
+     torch.backends.cudnn.benchmark = False  # 关闭优化搜索
      torch.backends.cudnn.deterministic = True
      np.random.seed(seed)
      random.seed(seed)
@@ -39,10 +39,10 @@ def parse_args():
     parser.add_argument('--trainname', type=str, default='bb7c', help='logname')
     parser.add_argument('--folder', type=str, default='test', help='logname')
     parser.add_argument('--loss', type=str, default='L1', help='logname')
-    # parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest', help='Path to rcs directory') #liang
-    # parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/traintest', help='Path to validation directory') #liang
-    parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to rcs directory')
-    parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to validation directory')
+    parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to rcs directory') #liang
+    parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to validation directory') #liang
+    # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to rcs directory')
+    # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to validation directory')
     # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_pretrain', help='Path to rcs directory')
     # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/mulbb7c_mie_val', help='Path to validation directory')
     # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/mul_mie_pretrain', help='Path to rcs directory')
@@ -144,7 +144,7 @@ paddingsize = 18000
 
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "outputGNN" / f"{folder}" /f'{date}_{name}_sd{seed}_{mode}{loss_type}_e{epoch}lr{learning_rate}_sm{smooth}_{cudadevice}_'), exist_ok=False))##
+save_dir = str(increment_path(Path(ROOT / "outputGNN" / f"{folder}" /f'{date}_{name}_sd{seed}_{mode}{loss_type}_e{epoch}lr{learning_rate}_{cudadevice}_'), exist_ok=False))##
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 maxsavedir = os.path.join(save_dir,'minmse.pt')
@@ -314,8 +314,12 @@ for i in range(epoch):
 
     if bestloss > epoch_mean_loss:
         bestloss = epoch_mean_loss
+        if os.path.exists(bestsavedir):
+            os.remove(bestsavedir)
         torch.save(autoencoder.to('cpu').state_dict(), bestsavedir)
         # torch.save(autoencoder.state_dict(), bestsavedir)
+    if os.path.exists(lastsavedir):
+        os.remove(lastsavedir)
     torch.save(autoencoder.to('cpu').state_dict(), lastsavedir)
     # torch.save(autoencoder.state_dict(), lastsavedir)
     logger.info('模型保存完成')
@@ -417,7 +421,7 @@ for i in range(epoch):
                 valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
             
     elif mode == "fasttest":
-        if (i+1) % 10 == 0 or i == -1: 
+        if (i+1) % 1 == 0 or i == -1: 
             if i+1==epoch:
                 valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
             else:
@@ -433,6 +437,8 @@ for i in range(epoch):
     #     maxpsnr = valpsnr
     if minmse > valmse:
         minmse = valmse
+        if os.path.exists(maxsavedir):
+            os.remove(maxsavedir)
         torch.save(autoencoder.state_dict(), maxsavedir)
 
 if i+1==epoch:

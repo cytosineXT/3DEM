@@ -1,10 +1,11 @@
 import torch
 import time
-from ref.jxtnet_upConv3_L1 import MeshAutoencoder
+from net.jxtnet_GNNn import MeshCodec
+# from ref.jxtnet_upConv3_L1 import MeshAutoencoder
 # from net.jxtnet_GNN import MeshEncoderDecoder
 # from net.jxtnet_Transupconv import MeshEncoderDecoder
 # from net.jxtnet_pureTrans import MeshEncoderDecoder
-from net.utils import increment_path, meshRCSDataset, get_logger, find_matching_files, process_files
+from net.utils_newload import increment_path, EMRCSDataset, get_logger, find_matching_files, process_files
 import torch.utils.data.dataloader as DataLoader
 # import trimesh
 from pathlib import Path
@@ -242,31 +243,15 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
     mses = []
     losses = []
     corrupted_files = []
-    for file in tqdm(os.listdir(rcsdir),desc=f'加载验证数据集',ncols=60,postfix=''):
-        if '.pt' in file:
-            # print(file)
-            plane, theta, phi, freq= re.search(r"([a-zA-Z0-9]{4})_theta(\d+)phi(\d+)f(\d.+).pt", file).groups()
-            theta = int(theta)
-            phi = int(phi)
-            freq = float(freq)
-            in_em = ['b827',theta,phi,freq]
-            # print(in_em)
-            try:
-                rcs = torch.load(os.path.join(rcsdir,file))
-            except Exception as e:
-                corrupted_files.append(os.path.join(rcsdir,file))
-                logger.info(f"Error loading file {os.path.join(rcsdir,file)}: {e}")
-            in_ems.append(in_em)
-            rcss.append(rcs)
-            # rcss.append(rcs[:,:,0])
 
-    dataset = meshRCSDataset(in_ems, rcss)
+    filelist = os.listdir(rcsdir)
+    dataset = EMRCSDataset(filelist, rcsdir) #这里进的是init
     dataloader = DataLoader.DataLoader(dataset, batch_size=1, shuffle=False, num_workers=0)#嗷 这个batchsize只能是1.。不知道啥时候写成batchsize的。。
     #-------------------------------------------------------------------------------------
     if trainval == False:
         logger.info(f'device:{device}')
 
-    autoencoder = MeshAutoencoder(num_discrete_coors = 128).to(device) #这里实例化，是进去跑了init
+    autoencoder = MeshCodec(num_discrete_coors = 128).to(device) #这里实例化，是进去跑了init
     autoencoder.load_state_dict(torch.load(weight), strict=False)
     # autoencoder = autoencoder.to(device)
     #-------------------------------------------------------------------------------------
@@ -277,7 +262,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
             planesur_faces, planesur_verts, planesur_faceedges, geoinfo = process_files(objlist, device)
 
             start_time0 = time.time()
-            loss, outrcs, _, psnrlist, _, ssimlist, mse = autoencoder( #这里使用网络，是进去跑了forward
+            loss, outrcs, psnr_mean, psnrlist, ssim_mean, ssimlist, mse, nmse, rmse, l1, percentage_error= autoencoder( #这里使用网络，是进去跑了forward
                 vertices = planesur_verts,
                 faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
                 face_edges = planesur_faceedges,
@@ -337,6 +322,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
         statisdir = os.path.join(save_dir,f'statistic_epoch{epoch}_PSNR{ave_psnr:.2f}dB_SSIM{ave_ssim:.4f}_MSE:{ave_mse:.4f}_Loss{ave_loss:.4f}.png')
         plotstatistic2(psnrs,ssims,mses,statisdir)
         # plotstatistic(psnrs,ssims,mses,statisdir,ave_loss,ave_psnr,ave_ssim,ave_mse)
+    return ave_mse #ave_psnr, 
 
 
 if __name__ == '__main__':
