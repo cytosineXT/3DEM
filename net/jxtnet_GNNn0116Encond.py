@@ -359,6 +359,8 @@ class MeshCodec(Module):
 
         self.conv1d1 = nn.Conv1d(784, middim, kernel_size=10, stride=10, dilation=1 ,padding=0)
         self.fc1d1 = nn.Linear(2250, 45*90)
+        # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        # self.fc1d1 = nn.Linear(2250, middim*45*90)
 
         # torch.Size([10, 64(middim), 2250])
         self.incident_angle_linear1 = nn.Linear(2, 2250)
@@ -566,11 +568,11 @@ class MeshCodec(Module):
         x = x + condfreq1
 
         x = self.fc1d1(x)
+        x = x.reshape(x.size(0), -1, 45*90) 
         # torch.Size([10, 64, 4050])
         x = x + condangle2 
         x = x + condfreq2
-
-        x = x.view(x.size(0), -1, 45, 90) 
+        x = x.reshape(x.size(0), -1, 45, 90) 
         # torch.Size([10, 64, 45, 90])
 
         # ------------------------2D upConv------------------------------

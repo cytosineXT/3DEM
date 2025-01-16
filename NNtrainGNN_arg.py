@@ -3,7 +3,7 @@ import torch
 import time
 from tqdm import tqdm
 # from net.jxtnet_GNNn0115cond import MeshCodec
-from net.jxtnet_GNNn import MeshCodec
+from net.jxtnet_GNNn0116Encond import MeshCodec
 import torch.utils.data.dataloader as DataLoader
 import os
 import sys
@@ -144,7 +144,7 @@ paddingsize = 18000
 
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "outputGNN" / f"{folder}" /f'{date}_{name}_sd{seed}_{mode}{loss_type}_e{epoch}lr{learning_rate}_{cudadevice}_'), exist_ok=False))##
+save_dir = str(increment_path(Path(ROOT / "outputGNN" / f"{folder}" /f'{date}_{name}_sd{seed}_{mode}{loss_type}_e{epoch}lr{learning_rate}ga{gama}_{cudadevice}_'), exist_ok=False))##
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 maxsavedir = os.path.join(save_dir,'minmse.pt')

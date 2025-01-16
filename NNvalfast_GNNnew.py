@@ -1,7 +1,7 @@
 import torch
 import time
 # from net.jxtnet_GNNn0115cond import MeshCodec
-from net.jxtnet_GNNn import MeshCodec
+from net.jxtnet_GNNn0116Encond import MeshCodec
 from net.utils_newload import increment_path, EMRCSDataset, get_logger, find_matching_files, process_files
 import torch.utils.data.dataloader as DataLoader
 # import trimesh
@@ -161,7 +161,7 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
     plt.figure(figsize=(12, 6))
 
     #-----------------------------------mse-------------------------------------------
-    mse_threshold = 2
+    mse_threshold = 0.5
     mse_list = [m for m in mse_list if m <= mse_threshold]
     print(len(mse_list))
     # MSE 直方图和正态分布曲线
@@ -175,9 +175,9 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
 
     mu, std = norm.fit(mse_list)
     # x = np.linspace(-5, 15, 1000)
-    x = np.linspace(min(mse_list)-0.05, max(mse_list)+0.05, 1000)
+    x = np.linspace(min(mse_list)-0.5, max(mse_list)+0.5, 1000)
     plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
-    plt.xlim(-0.5, 1)  # 限制横坐标范围
+    plt.xlim(-0.05, 0.5)  # 限制横坐标范围
     plt.xlabel('MSE')
     # plt.ylabel('Probability of samples')
     plt.ylabel('Probability of samples (%)')
