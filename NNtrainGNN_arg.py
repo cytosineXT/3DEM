@@ -2,8 +2,8 @@
 import torch
 import time
 from tqdm import tqdm
-from net.jxtnet_GNNn0115cond import MeshCodec
-# from net.jxtnet_GNNn import MeshCodec
+# from net.jxtnet_GNNn0115cond import MeshCodec
+from net.jxtnet_GNNn import MeshCodec
 import torch.utils.data.dataloader as DataLoader
 import os
 import sys
@@ -171,6 +171,7 @@ logger.info(f'保存到{lastsavedir}')
 filelist = os.listdir(rcsdir)
 dataset = EMRCSDataset(filelist, rcsdir) #这里进的是init
 dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffle, num_workers=0) #这里调用的是getitem
+logger.info(f'数据集点数{dataset.__len__}')
 
 device = torch.device(cudadevice if torch.cuda.is_available() else "cpu")
 # device = 'cpu'
@@ -413,7 +414,7 @@ for i in range(epoch):
 
     # plt.show()
     if mode == "pretrain":
-        if (i+1) % 100 == 0 or i == -1: 
+        if (i+1) % 20 == 0 or i == -1: 
         # if (i+1) % 1 == 0 or i == -1: 
             if i+1==epoch:
                 valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
@@ -421,7 +422,7 @@ for i in range(epoch):
                 valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
             
     elif mode == "fasttest":
-        if (i+1) % 100 == 0 or i == -1: 
+        if (i+1) % 20 == 0 or i == -1: 
             if i+1==epoch:
                 valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize)
             else:

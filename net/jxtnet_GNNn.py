@@ -391,7 +391,8 @@ class MeshCodec(Module):
         self.conv2_2 = nn.Conv2d(int(middim/4), int(middim/4), kernel_size=3, stride=1, padding=1)  # 添加的卷积层2
         self.bn2_1 = nn.BatchNorm2d(int(middim/4))  # 添加的批量归一化层1
         self.bn2_2 = nn.BatchNorm2d(int(middim/4))  # 添加的批量归一化层2
-        self.upconv3 = nn.ConvTranspose2d(int(middim/4), int(middim/8), kernel_size=2, stride=2, output_padding=1)
+        self.upconv3 = nn.ConvTranspose2d(int(middim/4), int(middim/8), kernel_size=2, stride=2)
+        # self.upconv3 = nn.ConvTranspose2d(int(middim/4), int(middim/8), kernel_size=2, stride=2, output_padding=1)
         self.bn3 = nn.BatchNorm2d(int(middim/8))
         self.conv3_1 = nn.Conv2d(int(middim/8), int(middim/8), kernel_size=3, stride=1, padding=1)  # 添加的卷积层1
         self.conv3_2 = nn.Conv2d(int(middim/8), int(middim/8), kernel_size=3, stride=1, padding=1)  # 添加的卷积层1
@@ -585,7 +586,7 @@ class MeshCodec(Module):
 
         x = self.conv1x1(x)
 
-        x = x[:, :, :, :-1]
+        # x = x[:, :, :, :-1]
 
         return x.squeeze(dim=1)
 
@@ -639,6 +640,7 @@ class MeshCodec(Module):
         if GT == None:
             return decoded
         else:
+            GT = GT[:,:-1,:] #361*720变360*720
             loss = loss_fn(decoded, GT, loss_type=loss_type, gama=gama)
             # l1loss = nn.L1Loss(reduction='sum')
             # loss = l1loss(decoded,GT)
