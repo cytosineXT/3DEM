@@ -440,6 +440,24 @@ class MeshCodec(Module):
         self.init_encoder_act_and_norm = nn.Sequential(
             nn.SiLU(),
             nn.LayerNorm(init_encoder_dim)
+        ) #所以是要手动激活？
+
+        self.discretize_emfreq2 = partial(discretize, num_discrete = 512, continuous_range = (0.,1.0))
+        self.condfreqlayers = ModuleList([ #长度不定没关系，我可以变成固定的维度让他在长度上广播！
+            nn.Embedding(512, 64),
+            nn.Embedding(512, 128), 
+            nn.Embedding(512, 256), 
+            nn.Embedding(512, 256),]
+            # nn.Embedding(512, 1125),
+            # nn.Embedding(512, 576),]
+        )
+        self.condanglelayers = ModuleList([
+            nn.Linear(2, 64),
+            nn.Linear(2, 128),
+            nn.Linear(2, 256),
+            nn.Linear(2, 256),]
+            # nn.Linear(2, 1125),
+            # nn.Linear(2, 576),]
         )
 
         self.encoders = ModuleList([])
@@ -450,8 +468,9 @@ class MeshCodec(Module):
                 dim_layer,
                 **sageconv_kwargs
             )
-
+            #需不需要手动加激活函数
             self.encoders.append(sage_conv) #这里把encoder创好了并贴上了sage
+
             curr_dim = dim_layer
 
         self.encoder_attn_blocks = ModuleList([])
@@ -504,26 +523,47 @@ class MeshCodec(Module):
         face_embed, _ = pack([face_coor_embed, angle_embed, area_embed, normal_embed, emnoangle_embed, emangle_embed, emfreq_embed], 'b nf *') 
         em_embed, _ = pack([emangle_embed, emfreq_embed], 'b nf *') 
 
+        #torch.Size([10, 12996, 1056])
         face_embed = self.project_in(face_embed) 
+        #torch.Size([10, 12996, 192])
         face_edges = face_edges.reshape(2, -1)
-        orig_face_embed_shape = face_embed.shape[:2]
-        face_embed = face_embed.reshape(-1, face_embed.shape[-1])
-        face_embed = self.init_sage_conv(face_embed, face_edges)
-        face_embed = self.init_encoder_act_and_norm(face_embed) 
-        for conv in self.encoders:
-            face_embed = conv(face_embed, face_edges) 
-        shape = (*orig_face_embed_shape, face_embed.shape[-1])# (1, 33564, 576) = (*torch.Size([1, 33564]), 576)
-        face_embed = face_embed.new_zeros(shape).masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed) #多了一层[]而已
+        orig_face_embed_shape = face_embed.shape[:2]#本来就记下了分批了
+        face_embed = face_embed.reshape(-1, face_embed.shape[-1])#torch.Size([129960, 192])
+        face_embed = self.init_sage_conv(face_embed, face_edges)#torch.Size([129960, 64])
+        face_embed = self.init_encoder_act_and_norm(face_embed)#torch.Size([129960, 64])
+        face_embed = face_embed.reshape(orig_face_embed_shape[0], orig_face_embed_shape[1], -1)#回复分批
 
-        for linear_attn, attn, ff in self.encoder_attn_blocks: #这一段直接没跑
-            if exists(linear_attn):
-                face_embed = linear_attn(face_embed, mask = face_mask) + face_embed
+        in_angle = torch.stack([in_em[1]/180, in_em[2]/360]).t().float().unsqueeze(1).to(device)
+        discretized_freq = self.discretize_emfreq2(in_em[3]).to(device).unsqueeze(1)
+        for i,conv in enumerate(self.encoders):
+            # condfreq=self.condfreqlayers[i](discretized_freq)
+            # condangle=self.condanglelayers[i](in_angle)
+            # face_embed = face_embed+condangle+condfreq #自带广播操作
+            # face_embed = conv(face_embed, face_edges) #为什么变成129960啊。。我草了 不能按照batch么
+            condfreq = self.condfreqlayers[i](discretized_freq)
+            condangle = self.condanglelayers[i](in_angle)
+            face_embed = face_embed + condangle + condfreq  # 自带广播操作
+            face_embed = face_embed.reshape(-1, face_embed.shape[-1])  # 再次合并批次
+            face_embed = conv(face_embed, face_edges)  # 图卷积操作
+            face_embed = face_embed.reshape(orig_face_embed_shape[0], orig_face_embed_shape[1], -1)  # 重新分割批次
+            '''
+            torch.Size([129960, 64])
+            torch.Size([129960, 128])
+            torch.Size([129960, 256])
+            torch.Size([129960, 256])
+            '''
+        shape = (*orig_face_embed_shape, face_embed.shape[-1]) # torch.Size([4, 12996, 576])
+        # face_embed = face_embed.new_zeros(shape).masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed) #多了一层[]而已
 
-            face_embed = attn(face_embed, mask = face_mask) + face_embed
-            face_embed = ff(face_embed) + face_embed
+        # for linear_attn, attn, ff in self.encoder_attn_blocks: #这一段直接没跑
+        #     if exists(linear_attn):
+        #         face_embed = linear_attn(face_embed, mask = face_mask) + face_embed
 
-        if not return_face_coordinates:
-            return face_embed
+        #     face_embed = attn(face_embed, mask = face_mask) + face_embed
+        #     face_embed = ff(face_embed) + face_embed
+
+        # if not return_face_coordinates:
+        #     return face_embed
 
         return face_embed, discrete_face_coords, em_embed, in_em
 
