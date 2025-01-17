@@ -2,7 +2,7 @@
 import torch
 import time
 from tqdm import tqdm
-# from net.jxtnet_GNNn0115cond import MeshCodec
+# from net.jxtnet_GNNn0115 import MeshCodec
 from net.jxtnet_GNNn0116Encond import MeshCodec
 import torch.utils.data.dataloader as DataLoader
 import os
@@ -144,7 +144,7 @@ paddingsize = 18000
 
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "outputGNN" / f"{folder}" /f'{date}_{name}_sd{seed}_{mode}{loss_type}_e{epoch}lr{learning_rate}ga{gama}_{cudadevice}_'), exist_ok=False))##
+save_dir = str(increment_path(Path(ROOT / "outputGNN" / f"{folder}" /f'{date}_{mode}{loss_type}_{name}_sd{seed}_e{epoch}lr{learning_rate}ga{gama}_{cudadevice}_'), exist_ok=False))##
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 maxsavedir = os.path.join(save_dir,'minmse.pt')
@@ -171,7 +171,7 @@ logger.info(f'保存到{lastsavedir}')
 filelist = os.listdir(rcsdir)
 dataset = EMRCSDataset(filelist, rcsdir) #这里进的是init
 dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffle, num_workers=0) #这里调用的是getitem
-logger.info(f'数据集点数{dataset.__len__}')
+logger.info(f'数据集点数{dataset.__len__()}')
 
 device = torch.device(cudadevice if torch.cuda.is_available() else "cpu")
 # device = 'cpu'
