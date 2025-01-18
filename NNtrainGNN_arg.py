@@ -3,7 +3,7 @@ import torch
 import time
 from tqdm import tqdm
 # from net.jxtnet_GNNn0115 import MeshCodec
-from net.jxtnet_GNNn0116Encond import MeshCodec
+from net.jxtnet_GNNn0118acEn import MeshCodec
 import torch.utils.data.dataloader as DataLoader
 import os
 import sys
@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument('--smooth', type=bool, default=False, help='Whether to use pretrained weights')
     parser.add_argument('--draw', type=bool, default=True, help='Whether to enable drawing')
 
-    parser.add_argument('--trainname', type=str, default='bb7c', help='logname')
+    parser.add_argument('--trainname', type=str, default='bb7c_test', help='logname')
     parser.add_argument('--folder', type=str, default='test', help='logname')
     parser.add_argument('--loss', type=str, default='L1', help='logname')
     parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to rcs directory') #liang

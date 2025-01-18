@@ -462,17 +462,33 @@ class MeshCodec(Module):
 
         self.encoders = ModuleList([])
 
+        # for dim_layer in encoder_dims_through_depth:
+        #     sage_conv = SAGEConv(
+        #         curr_dim,
+        #         dim_layer,
+        #         **sageconv_kwargs
+        #     )
+        #     #需不需要手动加激活函数
+        #     self.encoders.append(sage_conv) #这里把encoder创好了并贴上了sage
+        #     curr_dim = dim_layer
+
+        self.encoders = ModuleList([])
+        self.encoder_act_and_norm = ModuleList([])  # 新增的激活和归一化层列表
+
         for dim_layer in encoder_dims_through_depth:
             sage_conv = SAGEConv(
                 curr_dim,
                 dim_layer,
                 **sageconv_kwargs
             )
-            #需不需要手动加激活函数
-            self.encoders.append(sage_conv) #这里把encoder创好了并贴上了sage
-
+            self.encoders.append(sage_conv)  # 添加SAGEConv层
+            # 添加激活函数和LayerNorm
+            self.encoder_act_and_norm.append(nn.Sequential(
+                nn.SiLU(),
+                nn.LayerNorm(dim_layer)
+            ))
             curr_dim = dim_layer
-
+            
         self.encoder_attn_blocks = ModuleList([])
 
         for _ in range(attn_encoder_depth):
@@ -535,23 +551,32 @@ class MeshCodec(Module):
 
         in_angle = torch.stack([in_em[1]/180, in_em[2]/360]).t().float().unsqueeze(1).to(device)
         discretized_freq = self.discretize_emfreq2(in_em[3]).to(device).unsqueeze(1)
-        for i,conv in enumerate(self.encoders):
-            # condfreq=self.condfreqlayers[i](discretized_freq)
-            # condangle=self.condanglelayers[i](in_angle)
-            # face_embed = face_embed+condangle+condfreq #自带广播操作
-            # face_embed = conv(face_embed, face_edges) #为什么变成129960啊。。我草了 不能按照batch么
+        # for i,conv in enumerate(self.encoders):
+        #     # condfreq=self.condfreqlayers[i](discretized_freq)
+        #     # condangle=self.condanglelayers[i](in_angle)
+        #     # face_embed = face_embed+condangle+condfreq #自带广播操作
+        #     # face_embed = conv(face_embed, face_edges) #为什么变成129960啊。。我草了 不能按照batch么
+        #     condfreq = self.condfreqlayers[i](discretized_freq)
+        #     condangle = self.condanglelayers[i](in_angle)
+        #     face_embed = face_embed + condangle + condfreq  # 自带广播操作
+        #     face_embed = face_embed.reshape(-1, face_embed.shape[-1])  # 再次合并批次
+        #     face_embed = conv(face_embed, face_edges)  # 图卷积操作
+        #     face_embed = face_embed.reshape(orig_face_embed_shape[0], orig_face_embed_shape[1], -1)  # 重新分割批次
+        #     '''
+        #     torch.Size([129960, 64])
+        #     torch.Size([129960, 128])
+        #     torch.Size([129960, 256])
+        #     torch.Size([129960, 256])
+        #     '''
+        for i, (conv, act_norm) in enumerate(zip(self.encoders, self.encoder_act_and_norm)):
             condfreq = self.condfreqlayers[i](discretized_freq)
             condangle = self.condanglelayers[i](in_angle)
             face_embed = face_embed + condangle + condfreq  # 自带广播操作
             face_embed = face_embed.reshape(-1, face_embed.shape[-1])  # 再次合并批次
             face_embed = conv(face_embed, face_edges)  # 图卷积操作
+            face_embed = act_norm(face_embed)  # 应用激活函数和LayerNorm
             face_embed = face_embed.reshape(orig_face_embed_shape[0], orig_face_embed_shape[1], -1)  # 重新分割批次
-            '''
-            torch.Size([129960, 64])
-            torch.Size([129960, 128])
-            torch.Size([129960, 256])
-            torch.Size([129960, 256])
-            '''
+            
         shape = (*orig_face_embed_shape, face_embed.shape[-1]) # torch.Size([4, 12996, 576])
         # face_embed = face_embed.new_zeros(shape).masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed) #多了一层[]而已
 
