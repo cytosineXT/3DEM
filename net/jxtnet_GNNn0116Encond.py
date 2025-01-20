@@ -158,24 +158,6 @@ def loss_fn(decoded, GT, loss_type='L1', gama=0.01, delta=0.5):
     total_loss = loss + gama * maxloss
     return total_loss
 
-# class SmoothLoss(nn.Module):
-#     def __init__(self, alpha=1.0, beta=1.0):
-#         super(SmoothLoss, self).__init__()
-#         self.alpha = alpha
-#         self.beta = beta
-
-#     def forward(self, decoded, GT):
-#         # Calculate the MSE loss
-#         mse_loss = nn.MSELoss(reduction='sum')
-#         loss_mse = mse_loss(decoded, GT)
-
-#         diff1 = torch.abs(decoded[:,  :-1, :] - decoded[:,  1:, :])
-#         diff2 = torch.abs(decoded[:,  :, :-1] - decoded[:,  :, 1:])
-#         smoothness_loss = torch.sum(diff1) + torch.sum(diff2) * self.alpha
-#         # print(f"smoothloss:{smoothness_loss*self.beta:.4f},mseloss:{loss_mse:.4f}")
-#         total_loss = loss_mse + smoothness_loss * self.beta
-#         return total_loss
-
 def exists(v):
     return v is not None
 
@@ -374,10 +356,25 @@ class MeshCodec(Module):
         paddingsize = 22500,
     ): 
         super().__init__()
-        #----------------------------------------------------jxt decoder----------------------------------------------------------
-        self.conv1d1 = nn.Conv1d(576, 1, kernel_size=10, stride=10, dilation=1 ,padding=0) #草 就靠这个又减维度又缩长度啊。。
-        # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0) #草 就靠这个又减维度又缩长度啊。。
-        self.fc1d1 = nn.Linear(2250, middim*45*90)
+
+        self.conv1d1 = nn.Conv1d(784, middim, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        self.fc1d1 = nn.Linear(2250, 45*90)
+        # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        # self.fc1d1 = nn.Linear(2250, middim*45*90)
+
+        # torch.Size([10, 64(middim), 2250])
+        self.incident_angle_linear1 = nn.Linear(2, 2250)
+        self.emfreq_embed1 = nn.Embedding(num_discrete_emfreq, 2250)
+        self.incident_angle_linear2 = nn.Linear(2, 4050)
+        self.emfreq_embed2 = nn.Embedding(num_discrete_emfreq, 4050)
+        self.incident_angle_linear3 = nn.Linear(2, 90*180)
+        self.emfreq_embed3 = nn.Embedding(num_discrete_emfreq, 90*180)
+        self.incident_angle_linear4 = nn.Linear(2, 180*360)
+        self.emfreq_embed4 = nn.Embedding(num_discrete_emfreq, 180*360)
+        self.incident_angle_linear5 = nn.Linear(2, 360*720)
+        self.emfreq_embed5 = nn.Embedding(num_discrete_emfreq, 360*720)
+
+        self.smoothing_layer = SmoothingLayer(kernel_size=5, init_sigma=4.0, device=device)
 
         # Decoder3
         self.upconv1 = nn.ConvTranspose2d(middim, int(middim/2), kernel_size=2, stride=2)
@@ -392,7 +389,8 @@ class MeshCodec(Module):
         self.conv2_2 = nn.Conv2d(int(middim/4), int(middim/4), kernel_size=3, stride=1, padding=1)  # 添加的卷积层2
         self.bn2_1 = nn.BatchNorm2d(int(middim/4))  # 添加的批量归一化层1
         self.bn2_2 = nn.BatchNorm2d(int(middim/4))  # 添加的批量归一化层2
-        self.upconv3 = nn.ConvTranspose2d(int(middim/4), int(middim/8), kernel_size=2, stride=2, output_padding=1)
+        self.upconv3 = nn.ConvTranspose2d(int(middim/4), int(middim/8), kernel_size=2, stride=2)
+        # self.upconv3 = nn.ConvTranspose2d(int(middim/4), int(middim/8), kernel_size=2, stride=2, output_padding=1)
         self.bn3 = nn.BatchNorm2d(int(middim/8))
         self.conv3_1 = nn.Conv2d(int(middim/8), int(middim/8), kernel_size=3, stride=1, padding=1)  # 添加的卷积层1
         self.conv3_2 = nn.Conv2d(int(middim/8), int(middim/8), kernel_size=3, stride=1, padding=1)  # 添加的卷积层1
@@ -442,6 +440,24 @@ class MeshCodec(Module):
         self.init_encoder_act_and_norm = nn.Sequential(
             nn.SiLU(),
             nn.LayerNorm(init_encoder_dim)
+        ) #所以是要手动激活？
+
+        self.discretize_emfreq2 = partial(discretize, num_discrete = 512, continuous_range = (0.,1.0))
+        self.condfreqlayers = ModuleList([ #长度不定没关系，我可以变成固定的维度让他在长度上广播！
+            nn.Embedding(512, 64),
+            nn.Embedding(512, 128), 
+            nn.Embedding(512, 256), 
+            nn.Embedding(512, 256),]
+            # nn.Embedding(512, 1125),
+            # nn.Embedding(512, 576),]
+        )
+        self.condanglelayers = ModuleList([
+            nn.Linear(2, 64),
+            nn.Linear(2, 128),
+            nn.Linear(2, 256),
+            nn.Linear(2, 256),]
+            # nn.Linear(2, 1125),
+            # nn.Linear(2, 576),]
         )
 
         self.encoders = ModuleList([])
@@ -452,8 +468,9 @@ class MeshCodec(Module):
                 dim_layer,
                 **sageconv_kwargs
             )
-
+            #需不需要手动加激活函数
             self.encoders.append(sage_conv) #这里把encoder创好了并贴上了sage
+
             curr_dim = dim_layer
 
         self.encoder_attn_blocks = ModuleList([])
@@ -506,28 +523,49 @@ class MeshCodec(Module):
         face_embed, _ = pack([face_coor_embed, angle_embed, area_embed, normal_embed, emnoangle_embed, emangle_embed, emfreq_embed], 'b nf *') 
         em_embed, _ = pack([emangle_embed, emfreq_embed], 'b nf *') 
 
+        #torch.Size([10, 12996, 1056])
         face_embed = self.project_in(face_embed) 
+        #torch.Size([10, 12996, 192])
         face_edges = face_edges.reshape(2, -1)
-        orig_face_embed_shape = face_embed.shape[:2]
-        face_embed = face_embed.reshape(-1, face_embed.shape[-1])
-        face_embed = self.init_sage_conv(face_embed, face_edges)
-        face_embed = self.init_encoder_act_and_norm(face_embed) 
-        for conv in self.encoders:
-            face_embed = conv(face_embed, face_edges) 
-        shape = (*orig_face_embed_shape, face_embed.shape[-1])# (1, 33564, 576) = (*torch.Size([1, 33564]), 576)
-        face_embed = face_embed.new_zeros(shape).masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed) #多了一层[]而已
+        orig_face_embed_shape = face_embed.shape[:2]#本来就记下了分批了
+        face_embed = face_embed.reshape(-1, face_embed.shape[-1])#torch.Size([129960, 192])
+        face_embed = self.init_sage_conv(face_embed, face_edges)#torch.Size([129960, 64])
+        face_embed = self.init_encoder_act_and_norm(face_embed)#torch.Size([129960, 64])
+        face_embed = face_embed.reshape(orig_face_embed_shape[0], orig_face_embed_shape[1], -1)#回复分批
 
-        for linear_attn, attn, ff in self.encoder_attn_blocks: #这一段直接没跑
-            if exists(linear_attn):
-                face_embed = linear_attn(face_embed, mask = face_mask) + face_embed
+        in_angle = torch.stack([in_em[1]/180, in_em[2]/360]).t().float().unsqueeze(1).to(device)
+        discretized_freq = self.discretize_emfreq2(in_em[3]).to(device).unsqueeze(1)
+        for i,conv in enumerate(self.encoders):
+            # condfreq=self.condfreqlayers[i](discretized_freq)
+            # condangle=self.condanglelayers[i](in_angle)
+            # face_embed = face_embed+condangle+condfreq #自带广播操作
+            # face_embed = conv(face_embed, face_edges) #为什么变成129960啊。。我草了 不能按照batch么
+            condfreq = self.condfreqlayers[i](discretized_freq)
+            condangle = self.condanglelayers[i](in_angle)
+            face_embed = face_embed + condangle + condfreq  # 自带广播操作
+            face_embed = face_embed.reshape(-1, face_embed.shape[-1])  # 再次合并批次
+            face_embed = conv(face_embed, face_edges)  # 图卷积操作
+            face_embed = face_embed.reshape(orig_face_embed_shape[0], orig_face_embed_shape[1], -1)  # 重新分割批次
+            '''
+            torch.Size([129960, 64])
+            torch.Size([129960, 128])
+            torch.Size([129960, 256])
+            torch.Size([129960, 256])
+            '''
+        shape = (*orig_face_embed_shape, face_embed.shape[-1]) # torch.Size([4, 12996, 576])
+        # face_embed = face_embed.new_zeros(shape).masked_scatter(rearrange(face_mask, '... -> ... 1'), face_embed) #多了一层[]而已
 
-            face_embed = attn(face_embed, mask = face_mask) + face_embed
-            face_embed = ff(face_embed) + face_embed
+        # for linear_attn, attn, ff in self.encoder_attn_blocks: #这一段直接没跑
+        #     if exists(linear_attn):
+        #         face_embed = linear_attn(face_embed, mask = face_mask) + face_embed
 
-        if not return_face_coordinates:
-            return face_embed
+        #     face_embed = attn(face_embed, mask = face_mask) + face_embed
+        #     face_embed = ff(face_embed) + face_embed
 
-        return face_embed, discrete_face_coords, em_embed, in_em_angle_vec
+        # if not return_face_coordinates:
+        #     return face_embed
+
+        return face_embed, discrete_face_coords, em_embed, in_em
 
 
 
@@ -535,53 +573,106 @@ class MeshCodec(Module):
     @beartype
     def decode( 
         self,
-        x, #torch.Size([10, 12996, 576])
-        em_embed, #torch.Size([10, 12996, 208])
+        x, 
+        em_embed,
+        in_em1,
+        device,
     ):
-        # x = torch.cat([x, em_embed], dim=2) 
+        in_angle = torch.stack([in_em1[1]/180, in_em1[2]/360]).t().float().to(device).unsqueeze(1)
+        condangle1 = self.incident_angle_linear1(in_angle)
+        condangle2 = self.incident_angle_linear2(in_angle)
+        condangle3 = self.incident_angle_linear3(in_angle).reshape(in_angle.shape[0],-1,90,180)
+        condangle4 = self.incident_angle_linear4(in_angle).reshape(in_angle.shape[0],-1,180,360)
+        condangle5 = self.incident_angle_linear5(in_angle).reshape(in_angle.shape[0],-1,360,720)
+
+        discretized_freq = self.discretize_emfreq(in_em1[3]).to(device).unsqueeze(1)
+        condfreq1 = self.emfreq_embed1(discretized_freq)
+        condfreq2 = self.emfreq_embed2(discretized_freq)
+        condfreq3 = self.emfreq_embed3(discretized_freq).reshape(in_angle.shape[0],-1,90,180)
+        condfreq4 = self.emfreq_embed4(discretized_freq).reshape(in_angle.shape[0],-1,180,360)
+        condfreq5 = self.emfreq_embed5(discretized_freq).reshape(in_angle.shape[0],-1,360,720)
+
+        # #torch.Size([10, 12996, 576])
+        # #torch.Size([10, 12996, 208])
+        x = torch.cat([x, em_embed], dim=2) 
+        # #torch.Size([10, 12996, 784])
         pad_size = 22500 - x.size(1)
         x = F.pad(x, (0, 0, 0, pad_size)) 
         x = x.view(x.size(0), -1, 22500) 
         
-        # ------------------------1D Conv+FC-----------------------------
-        x = self.conv1d1(x) #torch.Size([10, 784, 22500]) 到 torch.Size([10, 1, 2250])
-        x = self.fc1d1(x) #torch.Size([10, 1, 259200])
-        x = x.view(x.size(0), -1, 45, 90) #torch.Size([10, 64, 45, 90])
+        # # ------------------------1D Conv+FC-----------------------------
+        # torch.Size([10, 784, 22500])
+        x = self.conv1d1(x) 
+        # torch.Size([10, 64(middim), 2250])
+        x = x + condangle1 
+        x = x + condfreq1
+
+        x = self.fc1d1(x)
+        x = x.reshape(x.size(0), -1, 45*90) 
+        # torch.Size([10, 64, 4050])
+        x = x + condangle2 
+        x = x + condfreq2
+        x = x.reshape(x.size(0), -1, 45, 90) 
+        # torch.Size([10, 64, 45, 90])
 
         # ------------------------2D upConv------------------------------
         x = self.upconv1(x)
+        # torch.Size([10, 32, 90, 180])
         x = self.bn1(x)
-        x = F.relu(x)
+        x = F.silu(x)
+        x = x + condangle3
+        x = x + condfreq3
         x = self.conv1_1(x)
         x = self.bn1_1(x)
-        x = F.relu(x)
+        x = F.silu(x)
+        x = x + condangle3
+        x = x + condfreq3
         x = self.conv1_2(x)
         x = self.bn1_2(x)
-        x = F.relu(x)
+        x = F.silu(x)
+        x = x + condangle3
+        x = x + condfreq3
 
-        x = self.upconv2(x)
+        x = self.upconv2(x) 
+        #torch.Size([10, 16, 180, 360])
         x = self.bn2(x)
-        x = F.relu(x)
+        x = F.silu(x)
+        # x = x + condangle4
+        # x = x + condfreq4
         x = self.conv2_1(x)
         x = self.bn2_1(x)
-        x = F.relu(x)
+        x = F.silu(x)
+        # x = x + condangle4
+        # x = x + condfreq4
         x = self.conv2_2(x)
         x = self.bn2_2(x)
-        x = F.relu(x)
+        x = F.silu(x)
+        # x = x + condangle4
+        # x = x + condfreq4
 
-        x = self.upconv3(x)
+        x = self.upconv3(x) 
+        #torch.Size([10, 8, 361, 721])
         x = self.bn3(x)
-        x = F.relu(x)
+        x = F.silu(x)
+        # x = x + condangle5
+        # x = x + condfreq5
         x = self.conv3_1(x)
         x = self.bn3_1(x)
-        x = F.relu(x)
+        x = F.silu(x)
+        # x = x + condangle5
+        # x = x + condfreq5
         x = self.conv3_2(x)
         x = self.bn3_2(x)
-        x = F.relu(x)
+        x = F.silu(x)
+        # x = x + condangle5
+        # x = x + condfreq5
 
         x = self.conv1x1(x)
+        # torch.Size([10, 1, 360, 720])
 
-        x = x[:, :, :, :-1]
+        # torch.Size([10, 1, 361, 721])
+        # x = x[:, :, :, :-1]
+        # torch.Size([10, 1, 361, 720])
 
         return x.squeeze(dim=1)
 
@@ -609,7 +700,7 @@ class MeshCodec(Module):
 
         face_mask = reduce(faces != self.pad_id, 'b nf c -> b nf', 'all')
 
-        encoded, __, em_embed, in_em_angle_vec = self.encode( 
+        encoded, __, em_embed, in_em1 = self.encode( 
             vertices = vertices, #顶点
             faces = faces, #面
             face_edges = face_edges, #图论边
@@ -621,7 +712,8 @@ class MeshCodec(Module):
         decoded = self.decode(
             encoded, 
             em_embed,
-            # in_em_angle_vec
+            in_em1,
+            device,
         )
 
         # #平滑后处理：中值滤波+高斯滤波+修改后的smoothloss
@@ -635,7 +727,16 @@ class MeshCodec(Module):
         if GT == None:
             return decoded
         else:
+            GT = GT[:,:-1,:] #361*720变360*720
             loss = loss_fn(decoded, GT, loss_type=loss_type, gama=gama)
+            # l1loss = nn.L1Loss(reduction='sum')
+            # loss = l1loss(decoded,GT)
+
+            # psnr_list = batch_psnr(decoded, GT)
+            # ssim_list = batch_ssim(decoded, GT)
+            # # mean_psnr = sum(psnr_list) / batch_size
+            # mean_psnr = psnr_list.mean()
+            # mean_ssim = ssim_list.mean()
 
             with torch.no_grad():
                 psnr_list = psnr(decoded, GT)

@@ -1,6 +1,6 @@
 import torch
 import time
-from net.jxtnet_GNNn import MeshCodec
+from net.jxtnet_GNNn0116Encond import MeshCodec
 from net.utils_newload import increment_path, EMRCSDataset, get_logger, find_matching_files, process_files
 import torch.utils.data.dataloader as DataLoader
 # import trimesh

@@ -1,10 +1,7 @@
 import torch
 import time
-from net.jxtnet_GNNn import MeshCodec
-# from ref.jxtnet_upConv3_L1 import MeshAutoencoder
-# from net.jxtnet_GNN import MeshEncoderDecoder
-# from net.jxtnet_Transupconv import MeshEncoderDecoder
-# from net.jxtnet_pureTrans import MeshEncoderDecoder
+# from net.jxtnet_GNNn0115cond import MeshCodec
+from net.jxtnet_GNNn0118acEn import MeshCodec
 from net.utils_newload import increment_path, EMRCSDataset, get_logger, find_matching_files, process_files
 import torch.utils.data.dataloader as DataLoader
 # import trimesh
@@ -84,74 +81,74 @@ def plot2DRCS(rcs, savedir,logger,cutmax):
     else:
         print(f'画图用时：{time.time()-tic:.4f}s')
 
-def plotstatistic(psnr_list, ssim_list, mse_list, statisticdir):
-    # 绘制统计图
-    def to_percent(y,position):
-        return str(int((100*y))) #+"%"#这里可以用round（）函数设置取几位小数
-    binss = 40
+# def plotstatistic(psnr_list, ssim_list, mse_list, statisticdir):
+#     # 绘制统计图
+#     def to_percent(y,position):
+#         return str(int((100*y))) #+"%"#这里可以用round（）函数设置取几位小数
+#     binss = 40
 
-    plt.clf()
-    # 设置图像大小和子图
-    plt.figure(figsize=(12, 6))
+#     plt.clf()
+#     # 设置图像大小和子图
+#     plt.figure(figsize=(12, 6))
 
-    mse_threshold = 7
-    mse_list = [m for m in mse_list if m <= mse_threshold]
+#     mse_threshold = 7
+#     mse_list = [m for m in mse_list if m <= mse_threshold]
 
-    # MSE 直方图和正态分布曲线
-    plt.subplot(3, 3, 1)
-    # counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True, stacked=True)
-    counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True)
-    fomatter=FuncFormatter(to_percent)
-    plt.gca().yaxis.set_major_formatter(fomatter)
-    mu, std = norm.fit(mse_list)
-    # x = np.linspace(-5, 15, 1000)
-    x = np.linspace(min(mse_list)-2, max(mse_list)+2, 1000)
-    plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
-    # plt.xlim(-5, 15)  # 限制横坐标范围
-    plt.xlabel('MSE')
-    # plt.ylabel('Probability of samples')
-    plt.ylabel('Probability of samples (%)')
-    plt.title('MSE Histogram and Normal Fit')
-    plt.legend()
+#     # MSE 直方图和正态分布曲线
+#     plt.subplot(3, 3, 1)
+#     # counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True, stacked=True)
+#     counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True)
+#     fomatter=FuncFormatter(to_percent)
+#     plt.gca().yaxis.set_major_formatter(fomatter)
+#     mu, std = norm.fit(mse_list)
+#     # x = np.linspace(-5, 15, 1000)
+#     x = np.linspace(min(mse_list)-2, max(mse_list)+2, 1000)
+#     plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
+#     # plt.xlim(-5, 15)  # 限制横坐标范围
+#     plt.xlabel('MSE')
+#     # plt.ylabel('Probability of samples')
+#     plt.ylabel('Probability of samples (%)')
+#     plt.title('MSE Histogram and Normal Fit')
+#     plt.legend()
 
-    # PSNR 直方图和正态分布曲线
-    plt.subplot(3, 3, 2)
-    # counts, bins, patches = plt.hist(psnr_list, bins=binss, edgecolor='black', density=True, stacked=True)
-    counts, bins, patches = plt.hist(psnr_list, bins=binss, edgecolor='black', density=True)
-    fomatter=FuncFormatter(to_percent)
-    plt.gca().yaxis.set_major_formatter(fomatter)
-    mu, std = norm.fit(psnr_list)
-    # x = np.linspace(15,45, 1000)
-    x = np.linspace(min(psnr_list)-2, max(psnr_list)+2, 1000)
-    plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
-    # plt.xlim(-5, 15)  # 限制横坐标范围
-    plt.xlabel('PSNR')
-    # plt.ylabel('Probability of samples')
-    plt.ylabel('Probability of samples (%)')
-    plt.title('PSNR Histogram and Normal Fit')
-    plt.legend()
+#     # PSNR 直方图和正态分布曲线
+#     plt.subplot(3, 3, 2)
+#     # counts, bins, patches = plt.hist(psnr_list, bins=binss, edgecolor='black', density=True, stacked=True)
+#     counts, bins, patches = plt.hist(psnr_list, bins=binss, edgecolor='black', density=True)
+#     fomatter=FuncFormatter(to_percent)
+#     plt.gca().yaxis.set_major_formatter(fomatter)
+#     mu, std = norm.fit(psnr_list)
+#     # x = np.linspace(15,45, 1000)
+#     x = np.linspace(min(psnr_list)-2, max(psnr_list)+2, 1000)
+#     plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
+#     # plt.xlim(-5, 15)  # 限制横坐标范围
+#     plt.xlabel('PSNR')
+#     # plt.ylabel('Probability of samples')
+#     plt.ylabel('Probability of samples (%)')
+#     plt.title('PSNR Histogram and Normal Fit')
+#     plt.legend()
 
-    # SSIM 直方图和正态分布曲线
-    plt.subplot(3, 3, 3)
-    # counts, bins, patches = plt.hist(ssim_list, bins=binss, edgecolor='black', density=True, stacked=True)
-    counts, bins, patches = plt.hist(ssim_list, bins=binss, edgecolor='black', density=True)
-    # fomatter=FuncFormatter(to_percent)
-    # plt.gca().yaxis.set_major_formatter(fomatter)
-    mu, std = norm.fit(ssim_list)
-    # x = np.linspace(0.6,1.1, 1000)
-    x = np.linspace(min(ssim_list)-0.05, max(ssim_list)+0.05, 1000)
-    plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
-    # plt.xlim(0.55, 1.1)  # 限制横坐标范围
-    plt.xlabel('SSIM')
-    # plt.ylabel('Probability of samples')
-    plt.ylabel('Probability of samples (%)')
-    plt.title('SSIM Histogram and Normal Fit')
-    plt.legend()
+#     # SSIM 直方图和正态分布曲线
+#     plt.subplot(3, 3, 3)
+#     # counts, bins, patches = plt.hist(ssim_list, bins=binss, edgecolor='black', density=True, stacked=True)
+#     counts, bins, patches = plt.hist(ssim_list, bins=binss, edgecolor='black', density=True)
+#     # fomatter=FuncFormatter(to_percent)
+#     # plt.gca().yaxis.set_major_formatter(fomatter)
+#     mu, std = norm.fit(ssim_list)
+#     # x = np.linspace(0.6,1.1, 1000)
+#     x = np.linspace(min(ssim_list)-0.05, max(ssim_list)+0.05, 1000)
+#     plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
+#     # plt.xlim(0.55, 1.1)  # 限制横坐标范围
+#     plt.xlabel('SSIM')
+#     # plt.ylabel('Probability of samples')
+#     plt.ylabel('Probability of samples (%)')
+#     plt.title('SSIM Histogram and Normal Fit')
+#     plt.legend()
 
-    plt.tight_layout()
-    # plt.show()
-    plt.savefig(statisticdir)
-    plt.close()
+#     plt.tight_layout()
+#     # plt.show()
+#     plt.savefig(statisticdir)
+#     plt.close()
 
 def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
     # 绘制统计图
@@ -164,13 +161,13 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
     plt.figure(figsize=(12, 6))
 
     #-----------------------------------mse-------------------------------------------
-    mse_threshold = 2
+    mse_threshold = 0.5
     mse_list = [m for m in mse_list if m <= mse_threshold]
     print(len(mse_list))
     # MSE 直方图和正态分布曲线
     plt.subplot(3, 3, 1)
     # counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True, stacked=True)
-    counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', range=(0,0.75), density=True)
+    counts, bins, patches = plt.hist(mse_list, bins=binss*2, edgecolor='black', range=(0,0.75), density=True)
     # print(f'counts{counts},bins{bins},patches{patches}')
 
     # fomatter=FuncFormatter(to_percent)#这里把刻度乘了100，为了得到百分比纵轴
@@ -180,7 +177,7 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
     # x = np.linspace(-5, 15, 1000)
     x = np.linspace(min(mse_list)-0.5, max(mse_list)+0.5, 1000)
     plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
-    plt.xlim(-0.5, 1)  # 限制横坐标范围
+    plt.xlim(-0.05, max(mse_list)+max(mse_list)/5)  # 限制横坐标范围
     plt.xlabel('MSE')
     # plt.ylabel('Probability of samples')
     plt.ylabel('Probability of samples (%)')
@@ -230,7 +227,7 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
     plt.close()
 
 
-def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, trainval=False, draw3d=False,lgrcs=False,decoder_outdim=3,encoder_layer=6,paddingsize=18000, n=4, middim=64):
+def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, trainval=False, draw3d=False,lgrcs=False,decoder_outdim=3,encoder_layer=6,paddingsize=18000, n=4, middim=64,attnlayer=0):
     tic = time.time()
     # pngsavedir = os.path.join(save_dir,'0508_b827_theta90phi330freq0.9_4w_sm.png')
     if trainval == False:
@@ -251,7 +248,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
     if trainval == False:
         logger.info(f'device:{device}')
 
-    autoencoder = MeshCodec(num_discrete_coors = 128).to(device) #这里实例化，是进去跑了init
+    autoencoder = MeshCodec(num_discrete_coors = 128,attn_encoder_depth=attnlayer).to(device) #这里实例化，是进去跑了init
     autoencoder.load_state_dict(torch.load(weight), strict=False)
     # autoencoder = autoencoder.to(device)
     #-------------------------------------------------------------------------------------
