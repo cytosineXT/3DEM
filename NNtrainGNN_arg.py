@@ -50,6 +50,7 @@ def parse_args():
     parser.add_argument('--pretrainweight', type=str, default='/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1129_TransConv_pretrain_b7fd_nofilter/last.pt', help='Path to pretrained weights')
 
     parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility')
+    parser.add_argument('--attn', type=int, default=0, help='Random seed for reproducibility')
     parser.add_argument('--gama', type=float, default=0., help='0.001')
     parser.add_argument('--beta', type=float, default=0., help='0.')
     parser.add_argument('--lr', type=float, default=0.001, help='Loss threshold or gamma parameter')
@@ -78,6 +79,7 @@ rcsdir = args.rcsdir
 valdir = args.valdir
 pretrainweight = args.pretrainweight
 seed = args.seed
+attnlayer = args.attn
 gama = args.gama
 beta = args.beta
 learning_rate = args.lr
@@ -144,7 +146,9 @@ paddingsize = 18000
 
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
-save_dir = str(increment_path(Path(ROOT / "outputGNN" / f"{folder}" /f'{date}_{mode}{loss_type}_{name}_sd{seed}_e{epoch}lr{learning_rate}ga{gama}_{cudadevice}_'), exist_ok=False))##
+# save_dir = str(increment_path(Path(ROOT / "outputGNN" / f"{folder}" /f'{date}_{mode}{loss_type}_{name}_sd{seed}_e{epoch}lr{learning_rate}ga{gama}_{cudadevice}_'), exist_ok=False))##
+save_dir = str(increment_path(Path(ROOT / "outputGNN" / f"{folder}" /f'{date}_sd{seed}_{mode}{loss_type}_{name}_e{epoch}Tr{attnlayer}_{cudadevice}_'), exist_ok=False))##
+
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 maxsavedir = os.path.join(save_dir,'minmse.pt')
@@ -181,6 +185,7 @@ autoencoder = MeshCodec( #这里实例化，是进去跑了init 草 但是这里
     num_discrete_coors = 128,
     device= device,
     paddingsize = paddingsize,
+    attn_encoder_depth = attnlayer,
 )
 get_model_memory(autoencoder,logger)
 total_params = sum(p.numel() for p in autoencoder.parameters())

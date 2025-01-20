@@ -161,13 +161,13 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
     plt.figure(figsize=(12, 6))
 
     #-----------------------------------mse-------------------------------------------
-    mse_threshold = 0.4
+    mse_threshold = 0.5
     mse_list = [m for m in mse_list if m <= mse_threshold]
     print(len(mse_list))
     # MSE 直方图和正态分布曲线
     plt.subplot(3, 3, 1)
     # counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True, stacked=True)
-    counts, bins, patches = plt.hist(mse_list, bins=30, edgecolor='black', range=(0,0.75), density=True)
+    counts, bins, patches = plt.hist(mse_list, bins=binss*2, edgecolor='black', range=(0,0.75), density=True)
     # print(f'counts{counts},bins{bins},patches{patches}')
 
     # fomatter=FuncFormatter(to_percent)#这里把刻度乘了100，为了得到百分比纵轴
@@ -177,7 +177,7 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
     # x = np.linspace(-5, 15, 1000)
     x = np.linspace(min(mse_list)-0.5, max(mse_list)+0.5, 1000)
     plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
-    plt.xlim(-0.05, 0.4)  # 限制横坐标范围
+    plt.xlim(-0.05, max(mse_list)+max(mse_list)/5)  # 限制横坐标范围
     plt.xlabel('MSE')
     # plt.ylabel('Probability of samples')
     plt.ylabel('Probability of samples (%)')
@@ -227,7 +227,7 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
     plt.close()
 
 
-def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, trainval=False, draw3d=False,lgrcs=False,decoder_outdim=3,encoder_layer=6,paddingsize=18000, n=4, middim=64):
+def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, trainval=False, draw3d=False,lgrcs=False,decoder_outdim=3,encoder_layer=6,paddingsize=18000, n=4, middim=64,attnlayer=0):
     tic = time.time()
     # pngsavedir = os.path.join(save_dir,'0508_b827_theta90phi330freq0.9_4w_sm.png')
     if trainval == False:
@@ -248,7 +248,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
     if trainval == False:
         logger.info(f'device:{device}')
 
-    autoencoder = MeshCodec(num_discrete_coors = 128).to(device) #这里实例化，是进去跑了init
+    autoencoder = MeshCodec(num_discrete_coors = 128,attn_encoder_depth=attnlayer).to(device) #这里实例化，是进去跑了init
     autoencoder.load_state_dict(torch.load(weight), strict=False)
     # autoencoder = autoencoder.to(device)
     #-------------------------------------------------------------------------------------

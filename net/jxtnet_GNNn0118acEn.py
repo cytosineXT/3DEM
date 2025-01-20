@@ -357,7 +357,8 @@ class MeshCodec(Module):
     ): 
         super().__init__()
 
-        self.conv1d1 = nn.Conv1d(784, middim, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        self.conv1d1 = nn.Conv1d(576, middim, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        # self.conv1d1 = nn.Conv1d(784, middim, kernel_size=10, stride=10, dilation=1 ,padding=0)
         self.fc1d1 = nn.Linear(2250, 45*90)
         # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
         # self.fc1d1 = nn.Linear(2250, middim*45*90)
@@ -489,17 +490,23 @@ class MeshCodec(Module):
             ))
             curr_dim = dim_layer
             
-        self.encoder_attn_blocks = ModuleList([])
+        # self.encoder_attn_blocks = ModuleList([])
 
-        for _ in range(attn_encoder_depth):
-            self.encoder_attn_blocks.append(nn.ModuleList([
-                TaylorSeriesLinearAttn(curr_dim, prenorm = True, **linear_attn_kwargs) if use_linear_attn else None,
-                LocalMHA(dim = curr_dim, **attn_kwargs, **local_attn_kwargs),
-                nn.Sequential(RMSNorm(curr_dim), FeedForward(curr_dim, glu = True, dropout = ff_dropout))
-            ]))
+        # for _ in range(attn_encoder_depth):
+        #     self.encoder_attn_blocks.append(nn.ModuleList([
+        #         TaylorSeriesLinearAttn(curr_dim, prenorm = True, **linear_attn_kwargs) if use_linear_attn else None,
+        #         LocalMHA(dim = curr_dim, **attn_kwargs, **local_attn_kwargs),
+        #         nn.Sequential(RMSNorm(curr_dim), FeedForward(curr_dim, glu = True, dropout = ff_dropout))
+        #     ]))
 
         self.project_dim_codebook = nn.Linear(curr_dim, dim_codebook * self.num_vertices_per_face)
         self.pad_id = pad_id
+
+        self.encoder_attn_blocks = nn.ModuleList([
+            nn.TransformerEncoderLayer(d_model=curr_dim, nhead=8, dropout=attn_dropout)
+            for _ in range(attn_encoder_depth)
+        ])
+
 
 
     @beartype
@@ -587,6 +594,15 @@ class MeshCodec(Module):
         #     face_embed = attn(face_embed, mask = face_mask) + face_embed
         #     face_embed = ff(face_embed) + face_embed
 
+        for attn_layer in self.encoder_attn_blocks:
+            # 确保face_embed的形状适合Transformer层
+            # 例如，TransformerEncoderLayer期望输入形状为(seq_len, batch_size, d_model)
+            face_embed = face_embed.permute(1, 0, 2)  # (nf, b, d) torch.Size([10, 12996, 576])
+            face_embed = attn_layer(face_embed) + face_embed  # (nf, b, d) torch.Size([12996, 10, 576]) 残差骚操作
+            # face_embed = attn_layer(face_embed)  # (nf, b, d) torch.Size([12996, 10, 576]) 无残差
+
+            face_embed = face_embed.permute(1, 0, 2)  # (b, nf, d)
+
         # if not return_face_coordinates:
         #     return face_embed
 
@@ -619,7 +635,7 @@ class MeshCodec(Module):
 
         # #torch.Size([10, 12996, 576])
         # #torch.Size([10, 12996, 208])
-        x = torch.cat([x, em_embed], dim=2) 
+        # x = torch.cat([x, em_embed], dim=2) 
         # #torch.Size([10, 12996, 784])
         pad_size = 22500 - x.size(1)
         x = F.pad(x, (0, 0, 0, pad_size)) 
