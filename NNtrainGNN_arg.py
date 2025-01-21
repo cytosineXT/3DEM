@@ -453,4 +453,4 @@ if i+1==epoch:
 
 logger.info(f"损坏的文件：{corrupted_files}")
 logger.info(f'训练结束时间：{time.strftime("%Y-%m-%d %H:%M:%S",time.localtime(time.time()))}')
-logger.info(f'训练用时： {time.strftime("%H:%M:%S", time.gmtime(time.time()-tic0))}')
+logger.info(f'训练用时： {time.strftime("%d %H:%M:%S", time.gmtime(time.time()-tic0))}')
