@@ -578,7 +578,7 @@ class MeshCodec(Module):
         for i, (conv, act_norm) in enumerate(zip(self.encoders, self.encoder_act_and_norm)):
             condfreq = self.condfreqlayers[i](discretized_freq)
             condangle = self.condanglelayers[i](in_angle)
-            # face_embed = face_embed + condangle + condfreq  # 自带广播操作
+            face_embed = face_embed + condangle + condfreq  # 自带广播操作
             face_embed = face_embed.reshape(-1, face_embed.shape[-1])  # 再次合并批次
             face_embed = conv(face_embed, face_edges)  # 图卷积操作
             face_embed = act_norm(face_embed)  # 应用激活函数和LayerNorm
@@ -600,7 +600,6 @@ class MeshCodec(Module):
             face_embed = face_embed.permute(1, 0, 2)  # (nf, b, d) torch.Size([10, 12996, 576])
             face_embed = attn_layer(face_embed) + face_embed  # (nf, b, d) torch.Size([12996, 10, 576]) 残差骚操作
             # face_embed = attn_layer(face_embed)  # (nf, b, d) torch.Size([12996, 10, 576]) 无残差
-
             face_embed = face_embed.permute(1, 0, 2)  # (b, nf, d)
 
         # if not return_face_coordinates:

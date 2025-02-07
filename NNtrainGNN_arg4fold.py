@@ -50,8 +50,8 @@ def parse_args():
     parser.add_argument('--cuda', type=str, default='cuda:0', help='CUDA device to use')
 
     # 新增参数
-    # parser.add_argument('--fold', type=str, default=None, help='Fold to use for validation (e.g., fold4)')
-    parser.add_argument('--fold', type=str, default='fold1', help='Fold to use for validation (e.g., fold4)')
+    parser.add_argument('--fold', type=str, default=None, help='Fold to use for validation (e.g., fold4)')
+    # parser.add_argument('--fold', type=str, default='fold1', help='Fold to use for validation (e.g., fold4)')
     return parser.parse_args()
 
 datafolder = '/mnt/truenas_jiangxiaotian/allplanes/mie'
@@ -99,6 +99,8 @@ if args.fold:
     }
     val_files = fold_mapping[args.fold]
     train_files = [files for fold in [Fold1, Fold2, Fold3, Fold4] if fold != val_files for files in fold]
+    valdir = None
+    rcsdir = None
     if '10train' in train_files[0]:
         mode = 'pretrain'
     else:
@@ -202,7 +204,7 @@ else:
     filelist = os.listdir(rcsdir)
     dataset = EMRCSDataset(filelist, rcsdir) #这里进的是init
     dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffle, num_workers=0) #这里调用的是getitem
-    
+
     valfilelist = os.listdir(valdir)
     valdataset = EMRCSDataset(valfilelist, valdir) #这里进的是init
     valdataloader = DataLoader.DataLoader(valdataset, batch_size=1, shuffle=shuffle, num_workers=0) #这里调用的是getitem
@@ -314,6 +316,7 @@ for i in range(epoch):
             if flag == 0 and torch.equal(torch.stack(in_em0[1:]).t()[j], drawem):
                 drawrcs = outrcs[j].unsqueeze(0)
                 break
+        # break #调试val用
     logger.info(save_dir)
 
     p = psnr(drawrcs.to(device), drawGT.to(device))
@@ -452,8 +455,8 @@ for i in range(epoch):
 
     # plt.show()
     if mode == "pretrain":
-        if (i+1) % 20 == 0 or i == -1: 
-        # if (i+1) % 1 == 0 or i == -1: 
+        # if (i+1) % 20 == 0 or i == -1: 
+        if (i+1) % 1 == 0 or i == -1: 
             if i+1==epoch:
                 valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader)
             else:

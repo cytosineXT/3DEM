@@ -239,6 +239,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
     ssims = []
     mses = []
     losses = []
+    inftimes = []
     corrupted_files = []
 
     # filelist = os.listdir(rcsdir)
@@ -270,6 +271,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
                 logger = logger,
                 device = device,
             )
+            inftime = time.time()-start_time0
             # torch.cuda.empty_cache()
             eminfo = [int(in_em0[1]), int(in_em0[2]), float(in_em0[3])]
             plane = in_em0[0][0]
@@ -300,6 +302,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
             psnrs.append(psnrlist.mean())
             ssims.append(ssimlist.mean())
             mses.append(mse.mean())
+            inftimes.append(inftime)
             # psnrs.append(psnrlist.item())
             # ssims.append(ssimlist.item())
             # mses.append(mse.item())
@@ -307,12 +310,13 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, batchsize, tr
         ave_psnr = sum(psnrs)/len(psnrs)
         ave_ssim = sum(ssims)/len(ssims)
         ave_mse = sum(mses)/len(mses)
+        ave_inftime = sum(inftimes)/len(inftimes)
         if trainval == False:
             logger.info(f"已用{weight}验证{len(losses)}个数据, Mean Loss: {ave_loss:.4f}, Mean PSNR: {ave_psnr:.2f}dB, Mean SSIM: {ave_ssim:.4f}, Mean MSE:{ave_mse:.4f}")
             logger.info(f'val数据集地址:{rcsdir}, 总耗时:{time.strftime("%H:%M:%S", time.gmtime(time.time()-tic))}')
             logger.info(f"损坏的文件：{corrupted_files}")
         logger.info(f'val数据集地址:{rcsdir}, 总耗时:{time.strftime("%H:%M:%S", time.gmtime(time.time()-tic))}')
-        logger.info(f'↑----val loss:{ave_loss:.4f},psnr:{ave_psnr:.2f},ssim:{ave_ssim:.4f},mse:{ave_mse:.4f}----↑')
+        logger.info(f'↑----val loss:{ave_loss:.4f},psnr:{ave_psnr:.2f},ssim:{ave_ssim:.4f},mse:{ave_mse:.4f},inftime:{ave_inftime:.4f}s----↑')
         # if epoch % 20 == 0 or epoch == -1: #存指定倍数轮的
         #     statisdir = os.path.join(save_dir,f'statistic_epoch{epoch}.png')
         #     plotstatistic(psnrs,ssims,mses,statisdir)
