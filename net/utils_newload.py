@@ -255,6 +255,33 @@ class EMRCSDataset(Dataset.Dataset):
         in_em = [plane,theta,phi,freq]
         rcs = torch.load(os.path.join(self.rcsdir,file))
         return in_em, rcs
+
+class MultiEMRCSDataset(Dataset.Dataset):
+    def __init__(self, folder_list, base_dir):  # 初始化，传入文件夹列表和基础目录
+        self.folder_list = folder_list
+        self.base_dir = base_dir
+        self.filelist = []
+        
+        # 遍历每个文件夹，获取所有文件
+        for folder in folder_list:
+            folder_path = os.path.join(base_dir, folder)
+            files = os.listdir(folder_path)
+            self.filelist.extend([os.path.join(folder, file) for file in files])
+    
+    def __len__(self):  # 返回数据集大小
+        return len(self.filelist)
+    
+    def __getitem__(self, index):  # 得到数据内容和标签
+        import re
+        file = self.filelist[index]
+        full_path = os.path.join(self.base_dir, file)
+        plane, theta, phi, freq = re.search(r"([a-zA-Z0-9]{4})_theta(\d+)phi(\d+)f(\d.+).pt", file).groups()
+        theta = int(theta)
+        phi = int(phi)
+        freq = float(freq)
+        in_em = [plane, theta, phi, freq]
+        rcs = torch.load(full_path)
+        return in_em, rcs
     
 def find_matching_files(prefixlist, directory):
     objlist = []
@@ -273,7 +300,7 @@ def find_matching_files(prefixlist, directory):
 
 def load_and_process(file_path):
     """
-    读取并处理单个文件，返回faces, verts, faceedge张量。
+    读取并处理单个文件，返回faces, verts, faceedge张量。pt是edge文件，obj是原始目标文件
     """
     mesh = trimesh.load_mesh(file_path)
     area = mesh.area
