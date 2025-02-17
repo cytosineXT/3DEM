@@ -51,15 +51,23 @@ def parse_args():
 
     # 新增参数
     parser.add_argument('--fold', type=str, default=None, help='Fold to use for validation (e.g., fold4)')
-    # parser.add_argument('--fold', type=str, default='fold1', help='Fold to use for validation (e.g., fold4)')
+    # parser.add_argument('--fold', type=str, default='fold5', help='Fold to use for validation (e.g., fold4)')
     return parser.parse_args()
 
 # datafolder = '/mnt/truenas_jiangxiaotian/allplanes/mie' #liang
 datafolder = '/mnt/SrvDataDisk/Datasets_3DEM/allplanes/mie'
-Fold1 = ['b871_mie_10train','bb7d_mie_10train','b827_mie_10train','b905_mie_10train','bbc6_mie_10train']
-Fold2 = ['b80b_mie_10train','ba0f_mie_10train','b7c1_mie_10train','b9e6_mie_10train','bb7c_mie_10train']
-Fold3 = ['b943_mie_10train','b97b_mie_10train','b812_mie_10train','bc2c_mie_10train','b974_mie_10train']
-Fold4 = ['bb26_mie_10train','b7fd_mie_10train','baa9_mie_10train','b979_mie_10train','b8ed_mie_10train']
+# Fold1 = ['b871_mie_10train','bb7d_mie_10train','b827_mie_10train','b905_mie_10train','bbc6_mie_10train']
+# Fold2 = ['b80b_mie_10train','ba0f_mie_10train','b7c1_mie_10train','b9e6_mie_10train','bb7c_mie_10train']
+# Fold3 = ['b943_mie_10train','b97b_mie_10train','b812_mie_10train','bc2c_mie_10train','b974_mie_10train']
+# # Fold4 = ['bb26_mie_10train','b7fd_mie_10train','b7fd_mie_10train','b979_mie_10train','b8ed_mie_10train']
+# Fold4 = ['bb26_mie_10train','b7fd_mie_10train','baa9_mie_10train','b979_mie_10train','b8ed_mie_10train']
+# # Fold5 = ['b80b_mie_10train','baa9_mie_10train','b7c1_mie_10train','b9e6_mie_10train','bb7c_mie_10train']
+# # Fold5 = ['b80b_mie_50train','ba0f_mie_50train','b7c1_mie_50train','b9e6_mie_50train','bb7c_mie_50train']
+
+Fold1 = ['b871_mie_50train','bb7d_mie_50train','b827_mie_50train','b905_mie_50train','bbc6_mie_50train']
+Fold2 = ['b80b_mie_50train','ba0f_mie_50train','b7c1_mie_50train','b9e6_mie_50train','bb7c_mie_50train']
+Fold3 = ['b943_mie_50train','b97b_mie_50train','b812_mie_50train','bc2c_mie_50train','b974_mie_50train']
+Fold4 = ['bb26_mie_50train','b7fd_mie_50train','baa9_mie_50train','b979_mie_50train','b8ed_mie_50train']
 
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 tic0 = time.time()
@@ -457,7 +465,7 @@ for i in range(epoch):
     if mode == "pretrain":
         # if (i+1) % 20 == 0 or i == -1: 
         if (i+1) % 1 == 0 or i == -1: 
-            if i+1==epoch:
+            if (i+1) % 100 == 0:
                 valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader)
             else:
                 valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader)
@@ -469,8 +477,8 @@ for i in range(epoch):
             else:
                 valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader)
     else :
-        if (i+1) % 1 == 0 or i == -1:
-            if (i+1) % 10 == 0 or i+1==epoch:
+        if (i+1) % 10 == 0 or i == -1:
+            if (i+1) % 1 == 0 or i+1==epoch:
                 valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader)
             else:
                 valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader)
