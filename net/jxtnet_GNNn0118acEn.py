@@ -600,7 +600,6 @@ class MeshCodec(Module):
             face_embed = face_embed.permute(1, 0, 2)  # (nf, b, d) torch.Size([10, 12996, 576])
             face_embed = attn_layer(face_embed) + face_embed  # (nf, b, d) torch.Size([12996, 10, 576]) 残差骚操作
             # face_embed = attn_layer(face_embed)  # (nf, b, d) torch.Size([12996, 10, 576]) 无残差
-
             face_embed = face_embed.permute(1, 0, 2)  # (b, nf, d)
 
         # if not return_face_coordinates:

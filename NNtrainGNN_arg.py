@@ -6,7 +6,6 @@ from net.jxtnet_GNNn0118acEn import MeshCodec
 import torch.utils.data.dataloader as DataLoader
 import os
 import sys
-# import re
 import matplotlib
 import matplotlib.pyplot as plt
 matplotlib.use('agg')
@@ -36,7 +35,7 @@ def parse_args():
     parser.add_argument('--smooth', type=bool, default=False, help='Whether to use pretrained weights')
     parser.add_argument('--draw', type=bool, default=True, help='Whether to enable drawing')
 
-    parser.add_argument('--trainname', type=str, default='bb7c_fasttest', help='logname')
+    parser.add_argument('--trainname', type=str, default='bb7c_test', help='logname')
     parser.add_argument('--folder', type=str, default='test', help='logname')
     parser.add_argument('--loss', type=str, default='L1', help='logname')
     # parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to rcs directory') #liang
@@ -54,7 +53,7 @@ def parse_args():
     parser.add_argument('--gama', type=float, default=0.001, help='0.001')
     parser.add_argument('--beta', type=float, default=0., help='0.')
     parser.add_argument('--lr', type=float, default=0.001, help='Loss threshold or gamma parameter')
-    parser.add_argument('--cuda', type=str, default='cuda:0', help='CUDA device to use')
+    parser.add_argument('--cuda', type=str, default='cuda:1', help='CUDA device to use')
     return parser.parse_args()
 
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
@@ -146,7 +145,9 @@ paddingsize = 18000
 
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
+# save_dir = str(increment_path(Path(ROOT / "outputGNN" / f"{folder}" /f'{date}_{mode}{loss_type}_{name}_sd{seed}_e{epoch}lr{learning_rate}ga{gama}_{cudadevice}_'), exist_ok=False))##
 save_dir = str(increment_path(Path(ROOT / "outputGNN" / f"{folder}" /f'{date}_sd{seed}_{mode}{loss_type}_{name}_e{epoch}Tr{attnlayer}_{cudadevice}_'), exist_ok=False))##
+
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
 maxsavedir = os.path.join(save_dir,'minmse.pt')
@@ -173,6 +174,7 @@ logger.info(f'保存到{lastsavedir}')
 filelist = os.listdir(rcsdir)
 dataset = EMRCSDataset(filelist, rcsdir) #这里进的是init
 dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffle, num_workers=0) #这里调用的是getitem
+logger.info(f'数据集点数{dataset.__len__()}')
 
 device = torch.device(cudadevice if torch.cuda.is_available() else "cpu")
 # device = 'cpu'
@@ -183,7 +185,6 @@ autoencoder = MeshCodec( #这里实例化，是进去跑了init 草 但是这里
     device= device,
     paddingsize = paddingsize,
     attn_encoder_depth = attnlayer,
-
 )
 get_model_memory(autoencoder,logger)
 total_params = sum(p.numel() for p in autoencoder.parameters())
@@ -271,8 +272,8 @@ for i in range(epoch):
         if flag == 1:
             drawrcs = outrcs[0].unsqueeze(0)
             drawem = torch.stack(in_em0[1:]).t()[0]
-            # drawGT = rcs1[0].unsqueeze(0)
-            drawGT = rcs1[0][:-1,:].unsqueeze(0)
+            # drawGT = rcs1[0].unsqueeze(0)#用于720*361图
+            drawGT = rcs1[0][:-1,:].unsqueeze(0)#用于720*360图
             drawplane = in_em0[0][0]
             flag = 0
         for j in range(torch.stack(in_em0[1:]).t().shape[0]):
@@ -291,7 +292,7 @@ for i in range(epoch):
         plot2DRCS(rcs=drawGT.squeeze(), savedir=out2DGTpngpath, logger=logger,cutmax=None)
         GTflag = 0
         logger.info('已画GT图')
-    if i == 0 or (i+1) % 10 == 0: #存指定倍数轮时画某张图看训练效果
+    if i == 0 or (i+1) % 20 == 0: #存指定倍数轮时画某张图看训练效果
         outrcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}.png')
         out2Drcspngpath = os.path.join(save_dir,f'{drawplane}theta{drawem[0]}phi{drawem[1]}freq{drawem[2]}_epoch{i}_psnr{p.item():.2f}_ssim{s.item():.4f}_mse{m:.4f}_2D.png')
         # plotRCS2(rcs=drawrcs, savedir=outrcspngpath, logger=logger)
@@ -426,7 +427,7 @@ for i in range(epoch):
                 valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,attnlayer=attnlayer)
             
     elif mode == "fasttest":
-        if (i+1) % 1 == 0 or i == -1: 
+        if (i+1) % 20 == 0 or i == -1: 
             if i+1==epoch:
                 valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,attnlayer=attnlayer)
             else:

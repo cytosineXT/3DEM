@@ -604,14 +604,14 @@ class MeshCodec(Module):
         # torch.Size([10, 784, 22500])
         x = self.conv1d1(x) 
         # torch.Size([10, 64(middim), 2250])
-        x = x + condangle1 
-        x = x + condfreq1
+        # x = x + condangle1 
+        # x = x + condfreq1
 
         x = self.fc1d1(x)
         x = x.reshape(x.size(0), -1, 45*90) 
         # torch.Size([10, 64, 4050])
-        x = x + condangle2 
-        x = x + condfreq2
+        # x = x + condangle2 
+        # x = x + condfreq2
         x = x.reshape(x.size(0), -1, 45, 90) 
         # torch.Size([10, 64, 45, 90])
 
@@ -619,51 +619,51 @@ class MeshCodec(Module):
         x = self.upconv1(x)
         # torch.Size([10, 32, 90, 180])
         x = self.bn1(x)
-        x = F.silu(x)
-        x = x + condangle3
-        x = x + condfreq3
+        x = F.relu(x)
+        # x = x + condangle3
+        # x = x + condfreq3
         x = self.conv1_1(x)
         x = self.bn1_1(x)
-        x = F.silu(x)
-        x = x + condangle3
-        x = x + condfreq3
+        x = F.relu(x)
+        # x = x + condangle3
+        # x = x + condfreq3
         x = self.conv1_2(x)
         x = self.bn1_2(x)
-        x = F.silu(x)
-        x = x + condangle3
-        x = x + condfreq3
+        x = F.relu(x)
+        # x = x + condangle3
+        # x = x + condfreq3
 
         x = self.upconv2(x) 
         #torch.Size([10, 16, 180, 360])
         x = self.bn2(x)
-        x = F.silu(x)
+        x = F.relu(x)
         # x = x + condangle4
         # x = x + condfreq4
         x = self.conv2_1(x)
         x = self.bn2_1(x)
-        x = F.silu(x)
+        x = F.relu(x)
         # x = x + condangle4
         # x = x + condfreq4
         x = self.conv2_2(x)
         x = self.bn2_2(x)
-        x = F.silu(x)
+        x = F.relu(x)
         # x = x + condangle4
         # x = x + condfreq4
 
         x = self.upconv3(x) 
         #torch.Size([10, 8, 361, 721])
         x = self.bn3(x)
-        x = F.silu(x)
+        x = F.relu(x)
         # x = x + condangle5
         # x = x + condfreq5
         x = self.conv3_1(x)
         x = self.bn3_1(x)
-        x = F.silu(x)
+        x = F.relu(x)
         # x = x + condangle5
         # x = x + condfreq5
         x = self.conv3_2(x)
         x = self.bn3_2(x)
-        x = F.silu(x)
+        x = F.relu(x)
         # x = x + condangle5
         # x = x + condfreq5
 

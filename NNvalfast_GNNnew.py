@@ -167,7 +167,7 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
     # MSE 直方图和正态分布曲线
     plt.subplot(3, 3, 1)
     # counts, bins, patches = plt.hist(mse_list, bins=binss, edgecolor='black', density=True, stacked=True)
-    counts, bins, patches = plt.hist(mse_list, bins=binss*3, edgecolor='black', range=(0,0.75), density=True)
+    counts, bins, patches = plt.hist(mse_list, bins=binss*2, edgecolor='black', range=(0,0.75), density=True)
     # print(f'counts{counts},bins{bins},patches{patches}')
 
     # fomatter=FuncFormatter(to_percent)#这里把刻度乘了100，为了得到百分比纵轴
