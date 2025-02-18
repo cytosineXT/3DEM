@@ -38,13 +38,15 @@ def parse_args():
     parser.add_argument('--trainname', type=str, default='bb7c_test', help='logname')
     parser.add_argument('--folder', type=str, default='test', help='logname')
     parser.add_argument('--loss', type=str, default='L1', help='logname')
-    parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to rcs directory') #liang
-    parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to validation directory') #liang
+    parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to rcs directory')
+    parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to validation directory')
+    # parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to rcs directory') #liang
+    # parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to validation directory') #liang
     parser.add_argument('--pretrainweight', type=str, default='/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1129_TransConv_pretrain_b7fd_nofilter/last.pt', help='Path to pretrained weights')
 
     parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility')
     parser.add_argument('--attn', type=int, default=0, help='Random seed for reproducibility')
-    parser.add_argument('--gama', type=float, default=0., help='0.001')
+    parser.add_argument('--gama', type=float, default=0.001, help='0.001')
     parser.add_argument('--beta', type=float, default=0., help='0.')
     parser.add_argument('--lr', type=float, default=0.001, help='Loss threshold or gamma parameter')
     parser.add_argument('--cuda', type=str, default='cuda:0', help='CUDA device to use')
@@ -230,7 +232,7 @@ total_params = sum(p.numel() for p in autoencoder.parameters())
 logger.info(f"Total parameters: {total_params}")
 
 if use_preweight == True:
-    autoencoder.load_state_dict(torch.load(pretrainweight), strict=False)
+    autoencoder.load_state_dict(torch.load(pretrainweight), strict=True)
     logger.info(f'成功加载预训练权重{pretrainweight}')
 else:
     logger.info('未使用预训练权重，为从头训练')
@@ -473,8 +475,8 @@ for i in range(epoch):
             else:
                 valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader)
     else :
-        if (i+1) % 10 == 0 or i == -1:
-            if (i+1) % 10 == 0 or i+1==epoch:
+        if (i+1) % 1 == 0 or i == -1:
+            if (i+1) % 1 == 0 or i+1==epoch:
                 valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader)
             else:
                 valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader)
@@ -493,4 +495,5 @@ if i+1==epoch:
 
 logger.info(f"损坏的文件：{corrupted_files}")
 logger.info(f'训练结束时间：{time.strftime("%Y-%m-%d %H:%M:%S",time.localtime(time.time()))}')
-logger.info(f'训练用时： {time.strftime("%H:%M:%S", time.gmtime(time.time()-tic0))}')
+# logger.info(f'训练用时： {time.strftime("%H:%M:%S", time.gmtime(time.time()-tic0))}')
+logger.info(f'训练用时：{(time.time()-tic0)/3600:.2f}小时')
