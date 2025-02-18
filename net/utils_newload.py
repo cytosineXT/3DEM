@@ -8,7 +8,22 @@ import numpy as np
 import trimesh
 from net.data import derive_face_edges_from_faces
 
+class WrappedModel(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
 
+    def forward(self, *inputs):
+        return self.model(
+            vertices=inputs[0],
+            faces=inputs[1],
+            face_edges = inputs[2],
+            # geoinfo=inputs[3],
+            in_em=inputs[3],
+            GT=inputs[4],
+            device=inputs[5]
+        )
+    
 def toc(tic):
     import time
     print(f'耗时{time.time() - tic:.4f}s')
@@ -160,6 +175,9 @@ def psnr(img1, img2): #_with_dynamic_normalization 不带gtmax的，用两个的
 def batch_psnr(img1, img2):
     psnrr=psnr(img1,img2)
     return psnrr
+
+def batch_mse(img1, img2):
+    return (img1.sub(img2).pow_(2).view(img1.size(0), -1).mean(1))
 # def batch_psnr(img1, img2):
 #     import time
 #     tic = time.time()

@@ -1,7 +1,7 @@
 import torch
 import time
 import time
-from net.jxtnet_GNN import MeshEncoderDecoder
+from net.jxtnet_GNNUnet import MeshEncoderDecoder
 # from net.jxtnet_Transupconvflop import MeshEncoderDecoder
 import torch.utils.data.dataloader as DataLoader
 import os
@@ -30,7 +30,7 @@ def parse_args():
     parser.add_argument('--draw', type=bool, default=True, help='Whether to enable drawing')
 
     parser.add_argument('--trainname', type=str, default='mul2347', help='logname')
-    parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest', help='Path to rcs directory')
+    parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to rcs directory')
 
     parser.add_argument('--seed', type=int, default=777, help='Random seed for reproducibility')
     parser.add_argument('--gama', type=float, default=0.001, help='Loss threshold or gamma parameter')

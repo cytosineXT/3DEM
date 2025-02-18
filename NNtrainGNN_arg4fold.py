@@ -10,14 +10,16 @@ import matplotlib
 import matplotlib.pyplot as plt
 matplotlib.use('agg')
 from pathlib import Path
-from net.utils_newload import increment_path, EMRCSDataset, MultiEMRCSDataset, get_logger, get_model_memory, psnr, ssim, find_matching_files, process_files#, get_tensor_memory, toc, checksize#, transform_to_log_coordinates
-from NNval_GNN4fold import  plot2DRCS, valmain#, plotRCS2
+from net.utils_newload import increment_path, EMRCSDataset, MultiEMRCSDataset, get_logger, get_model_memory, psnr, ssim, find_matching_files, process_files, WrappedModel
+from NNval_GNN4foldbatch import  plot2DRCS, valmain#, plotRCS2
 from pytictoc import TicToc
 t = TicToc()
 t.tic()
 import random
 import numpy as np
 import argparse
+from thop import profile
+import copy
 
 def setup_seed(seed):
      torch.manual_seed(seed)
@@ -30,24 +32,24 @@ def setup_seed(seed):
 def parse_args():
     parser = argparse.ArgumentParser(description="Script with customizable parameters using argparse.")
     parser.add_argument('--epoch', type=int, default=400, help='Number of training epochs')
-    parser.add_argument('--batch', type=int, default=10, help='batchsize')
+    parser.add_argument('--batch', type=int, default=1, help='batchsize')
     parser.add_argument('--use_preweight', type=bool, default=False, help='Whether to use pretrained weights')
     parser.add_argument('--smooth', type=bool, default=False, help='Whether to use pretrained weights')
     parser.add_argument('--draw', type=bool, default=True, help='Whether to enable drawing')
 
     parser.add_argument('--trainname', type=str, default='bb7c_test', help='logname')
     parser.add_argument('--folder', type=str, default='test', help='logname')
-    parser.add_argument('--loss', type=str, default='L1', help='logname')
-    parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to rcs directory')
-    parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to validation directory')
-    # parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to rcs directory') #liang
-    # parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to validation directory') #liang
+    parser.add_argument('--loss', type=str, default='L1', help='L1 best, mse 2nd')
+    # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to rcs directory')
+    # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to validation directory')
+    parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to rcs directory') #liang
+    parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to validation directory') #liang
     parser.add_argument('--pretrainweight', type=str, default='/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1129_TransConv_pretrain_b7fd_nofilter/last.pt', help='Path to pretrained weights')
 
     parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility')
-    parser.add_argument('--attn', type=int, default=0, help='Random seed for reproducibility')
-    parser.add_argument('--gama', type=float, default=0.001, help='0.001')
-    parser.add_argument('--beta', type=float, default=0., help='0.')
+    parser.add_argument('--attn', type=int, default=1, help='Random seed for reproducibility')
+    parser.add_argument('--gama', type=float, default=0.001, help='control max loss, i love 0.001')
+    parser.add_argument('--beta', type=float, default=0., help='seems to be control contrastive loss, i forgot, useless, 0')
     parser.add_argument('--lr', type=float, default=0.001, help='Loss threshold or gamma parameter')
     parser.add_argument('--cuda', type=str, default='cuda:0', help='CUDA device to use')
 
@@ -201,7 +203,7 @@ if args.fold:
     dataset = MultiEMRCSDataset(train_files, datafolder)
     valdataset = MultiEMRCSDataset(val_files, datafolder)
     dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffle, num_workers=0)
-    valdataloader = DataLoader.DataLoader(valdataset, batch_size=1, shuffle=shuffle, num_workers=0)
+    valdataloader = DataLoader.DataLoader(valdataset, batch_size=60, shuffle=shuffle, num_workers=0)
     logger.info(f'训练数据集点数{dataset.__len__()}，验证数据集点数{valdataset.__len__()}')
     
 else:
@@ -212,7 +214,7 @@ else:
 
     valfilelist = os.listdir(valdir)
     valdataset = EMRCSDataset(valfilelist, valdir) #这里进的是init
-    valdataloader = DataLoader.DataLoader(valdataset, batch_size=1, shuffle=shuffle, num_workers=0) #这里调用的是getitem
+    valdataloader = DataLoader.DataLoader(valdataset, batch_size=60, shuffle=shuffle, num_workers=0) #这里调用的是getitem
     logger.info(f'训练数据集点数{dataset.__len__()}，验证数据集点数{valdataset.__len__()}')
 
 logger.info(f'保存到{lastsavedir}')
@@ -245,6 +247,7 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=lr_time)
 # t.toc('代码准备时间',restart=True)
 flag = 1
 GTflag = 1
+flopflag = 1
 for i in range(epoch):
     psnr_list, ssim_list, mse_list, nmse_list, rmse_list, l1_list, percentage_error_list = [], [], [], [], [], [], []
     jj=0
@@ -261,7 +264,7 @@ for i in range(epoch):
         objlist , ptlist = find_matching_files(in_em1[0], "./planes")
         planesur_faces, planesur_verts, planesur_faceedges, geoinfo = process_files(objlist, device) #为了解决多batch变量长度不一样的问题 在这一步就已经padding到等长了
 
-        loss, outrcs, psnr_mean, _, ssim_mean, _, mse, nmse, rmse, l1, percentage_error = autoencoder( #这里使用网络，是进去跑了forward 
+        loss, outrcs, psnr_mean, _, ssim_mean, _, mse, nmse, rmse, l1, percentage_error, _ = autoencoder( #这里使用网络，是进去跑了forward 
             vertices = planesur_verts,
             faces = planesur_faces, #torch.Size([batchsize, 33564, 3])
             face_edges = planesur_faceedges,
@@ -276,7 +279,15 @@ for i in range(epoch):
             loss_type=loss_type,
             smooth=smooth
         )
-        
+        if flopflag == 1:
+            temp_model = copy.deepcopy(autoencoder)#否则在模型会添加新的注册参数，影响读取时strict读取
+            wrapped_model = WrappedModel(temp_model)
+            flops, params = profile(wrapped_model, (planesur_verts, planesur_faces, planesur_faceedges, in_em1, rcs1.to(device),device))
+            # logger.info('flops: ', flops, 'params: ', params)
+            logger.info(f' params:{params / 1000000.0:.2f}M, Gflops:{flops / 1000000000.0:.2f}G')
+            flopflag = 0
+            del temp_model  # 及时释放内存
+
         if lgrcs == True:
             outrcslg = outrcs
             outrcs = torch.pow(10, outrcs)
@@ -464,22 +475,22 @@ for i in range(epoch):
         if (i+1) % 1 == 0 or i == -1: 
             if (i+1) % 100 == 0:
             # if i+1==epoch:
-                valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader)
+                valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
             else:
-                valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader)
+                valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
             
     elif mode == "fasttest":
         if (i+1) % 1 == 0 or i == -1: 
             if i+1==epoch:
-                valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader)
+                valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
             else:
-                valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader)
+                valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
     else :
-        if (i+1) % 1 == 0 or i == -1:
-            if (i+1) % 1 == 0 or i+1==epoch:
-                valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader)
+        if (i+1) % 10 == 0 or i == -1:
+            if (i+1) % 10 == 0 or i+1==epoch:
+                valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
             else:
-                valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, batchsize=batchsize, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader)
+                valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
 
     # if maxpsnr < valpsnr:
     #     maxpsnr = valpsnr
