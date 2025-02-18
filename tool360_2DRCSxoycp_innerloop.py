@@ -1,3 +1,4 @@
+#采用了内循环，画不同颜色，结果在/home/jiangxiaotian/workspace/3DEM/output/rcs360/0113sweep7/0113_bb7c_m1753_xoycp_f0.500.png
 import os
 import torch
 import numpy as np

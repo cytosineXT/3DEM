@@ -17,7 +17,7 @@ from einops.layers.torch import Rearrange
 from x_transformers.x_transformers import RMSNorm, FeedForward
 
 from local_attention import LocalMHA
-from net.utils_newload import transform_to_log_coordinates, psnr 
+from net.utils_newload import transform_to_log_coordinates, psnr, batch_mse
 from net.utils_newload import ssim as myssim
 from pytorch_msssim import ms_ssim, ssim
 
@@ -781,6 +781,7 @@ class MeshCodec(Module):
             with torch.no_grad():
                 psnr_list = psnr(decoded, GT)
                 ssim_list = myssim(decoded, GT)
+                mse_list = batch_mse(decoded, GT)
                 mean_psnr = psnr_list.mean()
                 mean_ssim = ssim_list.mean()
 
@@ -791,6 +792,6 @@ class MeshCodec(Module):
                 l1 = (decoded-GT).abs().mean()
                 percentage_error = (minus / (GT + 1e-4)).abs().mean() * 100
 
-            return loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mse, nmse, rmse, l1, percentage_error
+            return loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mse, nmse, rmse, l1, percentage_error, mse_list
 
             # return loss, decoded, mean_psnr, psnr_list, mean_ssim, ssim_list, mean_mse

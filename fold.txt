@@ -1,0 +1,5 @@
+
+Fold1 = ['b871_mie_50train','bb7d_mie_50train','b827_mie_50train','b905_mie_50train','bbc6_mie_50train']
+Fold2 = ['b80b_mie_50train','ba0f_mie_50train','b7c1_mie_50train','b9e6_mie_50train','bb7c_mie_50train']
+Fold3 = ['b943_mie_50train','b97b_mie_50train','b812_mie_50train','bc2c_mie_50train','b974_mie_50train']
+Fold4 = ['bb26_mie_50train','b7fd_mie_50train','baa9_mie_50train','b979_mie_50train','b8ed_mie_50train']
