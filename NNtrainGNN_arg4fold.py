@@ -53,33 +53,33 @@ def parse_args():
     # parser.add_argument('--lr', type=float, default=0.001, help='Loss threshold or gamma parameter')
     # parser.add_argument('--cuda', type=str, default='cuda:0', help='CUDA device to use')
 
-    parser.add_argument('--epoch', type=int, default=400, help='Number of training epochs')
-    parser.add_argument('--batch', type=int, default=1, help='batchsize')
+    parser.add_argument('--epoch', type=int, default=200, help='Number of training epochs')
+    parser.add_argument('--batch', type=int, default=10, help='batchsize')
     parser.add_argument('--valbatch', type=int, default=40, help='valbatchsize')
     parser.add_argument('--use_preweight', type=bool, default=False, help='Whether to use pretrained weights')
     parser.add_argument('--smooth', type=bool, default=False, help='Whether to use pretrained weights')
     parser.add_argument('--draw', type=bool, default=True, help='Whether to enable drawing')
 
-    parser.add_argument('--trainname', type=str, default='bb7c_test', help='logname')
+    parser.add_argument('--trainname', type=str, default='fold_test', help='logname')
     parser.add_argument('--folder', type=str, default='test', help='logname')
     parser.add_argument('--mode', type=str, default='fasttest', help='10train 50fine 100fine fasttest')
     parser.add_argument('--loss', type=str, default='L1', help='L1 best, mse 2nd')
-    # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to rcs directory')
-    # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to validation directory')
-    parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to rcs directory') #liang
-    parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to validation directory') #liang
+    parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to rcs directory')
+    parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to validation directory')
+    # parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to rcs directory') #liang
+    # parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to validation directory') #liang
     parser.add_argument('--pretrainweight', type=str, default='/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1129_TransConv_pretrain_b7fd_nofilter/last.pt', help='Path to pretrained weights')
 
-    parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility')
-    parser.add_argument('--attn', type=int, default=1, help='Random seed for reproducibility')
+    parser.add_argument('--seed', type=int, default=7, help='Random seed for reproducibility')
+    parser.add_argument('--attn', type=int, default=0, help='Random seed for reproducibility')
     parser.add_argument('--gama', type=float, default=0.001, help='control max loss, i love 0.001')
     parser.add_argument('--beta', type=float, default=0., help='seems to be control contrastive loss, i forgot, useless, 0')
     parser.add_argument('--lr', type=float, default=0.001, help='Loss threshold or gamma parameter')
     parser.add_argument('--cuda', type=str, default='cuda:0', help='CUDA device to use')
 
     # 新增参数
-    parser.add_argument('--fold', type=str, default=None, help='Fold to use for validation (e.g., fold4)')
-    # parser.add_argument('--fold', type=str, default='fold1', help='Fold to use for validation (e.g., fold4)')
+    # parser.add_argument('--fold', type=str, default=None, help='Fold to use for validation (e.g., fold4)')
+    parser.add_argument('--fold', type=str, default='fold3', help='Fold to use for validation (e.g., fold4)')
     return parser.parse_args()
 
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
@@ -114,8 +114,8 @@ batchsize = args.batch
 valbatch = args.valbatch
 loss_type = args.loss
 
-datafolder = '/mnt/truenas_jiangxiaotian/allplanes/mie' #liang
-# datafolder = '/mnt/SrvDataDisk/Datasets_3DEM/allplanes/mie'
+# datafolder = '/mnt/truenas_jiangxiaotian/allplanes/mie' #liang
+datafolder = '/mnt/SrvDataDisk/Datasets_3DEM/allplanes/mie'
 
 # Fold1 = ['b871_mie_10train','bb7d_mie_10train','b827_mie_10train','b905_mie_10train','bbc6_mie_10train']
 # Fold2 = ['b80b_mie_10train','ba0f_mie_10train','b7c1_mie_10train','b9e6_mie_10train','bb7c_mie_10train']
@@ -196,7 +196,7 @@ paddingsize = 18000
 from datetime import datetime
 date = datetime.today().strftime("%m%d")
 # save_dir = str(increment_path(Path(ROOT / "outputGNN" / f"{folder}" /f'{date}_{mode}{loss_type}_{name}_sd{seed}_e{epoch}lr{learning_rate}ga{gama}_{cudadevice}_'), exist_ok=False))##
-save_dir = str(increment_path(Path(ROOT / "outputGNN" / f"{folder}" /f'{date}_sd{seed}_{mode}{loss_type}_{name}_e{epoch}Tr{attnlayer}_{cudadevice}_'), exist_ok=False))##
+save_dir = str(increment_path(Path(ROOT / "outputGNN" / f"{folder}" /f'{date}_sd{seed}_{mode}{loss_type}_{args.fold}{name}_e{epoch}Tr{attnlayer}_{cudadevice}_'), exist_ok=False))##
 
 lastsavedir = os.path.join(save_dir,'last.pt')
 bestsavedir = os.path.join(save_dir,'best.pt')
@@ -219,7 +219,7 @@ logger.info(f'seed:{seed}')
 # logger.info(f'使用jxtnet_transformerEncoder.py')
 # logger.info(f'参数设置：batchsize={batchsize}, epoch={epoch}, use_preweight={use_preweight}, cudadevice={cudadevice}, learning_rate={learning_rate}, lr_time={lr_time}, shuffle={shuffle}, gama={gama}, seed={seed}, rcsdir = {rcsdir}, valdir = {valdir}, pretrainweight = {pretrainweight}')
 if args.fold:
-    logger.info(f'数据集用{args.fold}验证也就是{train_planes}训练, mode={mode}')
+    logger.info(f'数据用{args.fold} {val_planes}验证也就是{train_planes}训练, mode={mode}')
     if mode=='10train' or 'fasttest': #10train 50fine 100fine
         train_files = [plane + '_mie_10train' for plane in train_planes]
     elif mode=='50fine':
@@ -228,28 +228,29 @@ if args.fold:
         train_files = [plane + '_mie_train' for plane in train_planes]
     
     val_files = [plane + '_mie_val' for plane in val_planes]
+    logger.info(f'最终训练数据集{train_files}，验证数据集{val_files}')
 
     dataset = MultiEMRCSDataset(train_files, datafolder)
-    dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffle, num_workers=0)
+    dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffle, num_workers=16, pin_memory=True)
     # valdataset = MultiEMRCSDataset(val_files, datafolder)
     # valdataloader = DataLoader.DataLoader(valdataset, batch_size=valbatch, shuffle=shuffle, num_workers=0)
     val_dataloaders = {} #现在val是按飞机的，按飞机创建了datasets实例化类用飞机名作为键来存对应飞机的dataloader实例化类作为值
     for valfile1 in val_files:
-        valdataset = MultiEMRCSDataset(valfile1, datafolder)
+        valdataset = MultiEMRCSDataset([valfile1], datafolder)
         plane1 = valfile1[:4]
-        val_dataloaders[plane1] = DataLoader.DataLoader(valdataset, batch_size=valbatch, shuffle=False, num_workers=0)
+        val_dataloaders[plane1] = DataLoader.DataLoader(valdataset, batch_size=valbatch, shuffle=False, num_workers=16, pin_memory=True)
 
-    logger.info(f'训练数据集点数{dataset.__len__()}，验证数据集点数{valdataset.__len__()}')
+    logger.info(f'训练数据集点数{dataset.__len__()}，单个验证数据集点数{valdataset.__len__()}，验证数据集个数{len(val_dataloaders)}，总验证数据集点数{valdataset.__len__()*len(val_dataloaders)}')
 
 else:
     logger.info(f'数据集用{rcsdir}训练')
     filelist = os.listdir(rcsdir)
     dataset = EMRCSDataset(filelist, rcsdir) #这里进的是init
-    dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffle, num_workers=0) #这里调用的是getitem
+    dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffle, num_workers=16, pin_memory=True) #这里调用的是getitem
 
     valfilelist = os.listdir(valdir)
     valdataset = EMRCSDataset(valfilelist, valdir) #这里进的是init
-    valdataloader = DataLoader.DataLoader(valdataset, batch_size=valbatch, shuffle=shuffle, num_workers=0) #transformer的话40才行？20.。 纯GNN的话60都可以
+    valdataloader = DataLoader.DataLoader(valdataset, batch_size=valbatch, shuffle=shuffle, num_workers=16, pin_memory=True) #transformer的话40才行？20.。 纯GNN的话60都可以
     logger.info(f'训练数据集点数{dataset.__len__()}，验证数据集点数{valdataset.__len__()}')
 
 logger.info(f'保存到{lastsavedir}')
