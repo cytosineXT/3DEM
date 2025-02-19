@@ -158,7 +158,7 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
     plt.close()
 
 
-def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, trainval=False, draw3d=False,lgrcs=False,decoder_outdim=3,encoder_layer=6,paddingsize=18000, n=4, middim=64,attnlayer=0,valdataloader=None, batchsize=10):
+def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, trainval=False, draw3d=False,lgrcs=False,decoder_outdim=3,encoder_layer=6,paddingsize=18000, n=4, middim=64,attnlayer=0,valdataloader=None, batchsize=40):
     tic = time.time()
     logger.info(f'val batchsize={batchsize}')
     # pngsavedir = os.path.join(save_dir,'0508_b827_theta90phi330freq0.9_4w_sm.png')
@@ -260,7 +260,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, trainval=Fals
 
         statisdir = os.path.join(save_dir,f'statistic_epoch{epoch}_PSNR{ave_psnr:.2f}dB_SSIM{ave_ssim:.4f}_MSE:{ave_mse:.4f}_Loss{ave_loss:.4f}.png')
         plotstatistic2(psnrs,ssims,mses,statisdir)
-    return ave_mse #ave_psnr, 
+    return ave_mse, ave_psnr, ave_ssim, psnrs, ssims, mses  #ave_psnr, 
 
 
 if __name__ == '__main__':

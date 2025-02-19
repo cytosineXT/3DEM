@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 matplotlib.use('agg')
 from pathlib import Path
 from net.utils_newload import increment_path, EMRCSDataset, MultiEMRCSDataset, get_logger, get_model_memory, psnr, ssim, find_matching_files, process_files, WrappedModel
-from NNval_GNN4foldbatch import  plot2DRCS, valmain#, plotRCS2
+from NNval_GNN4foldbatch import  plot2DRCS, valmain, plotstatistic2#, plotRCS2
 from pytictoc import TicToc
 t = TicToc()
 t.tic()
@@ -31,14 +31,38 @@ def setup_seed(seed):
 # 设置随机数种子
 def parse_args():
     parser = argparse.ArgumentParser(description="Script with customizable parameters using argparse.")
+    # parser.add_argument('--epoch', type=int, default=400, help='Number of training epochs')
+    # parser.add_argument('--batch', type=int, default=10, help='batchsize')
+    # parser.add_argument('--use_preweight', type=bool, default=False, help='Whether to use pretrained weights')
+    # parser.add_argument('--smooth', type=bool, default=False, help='Whether to use pretrained weights')
+    # parser.add_argument('--draw', type=bool, default=True, help='Whether to enable drawing')
+
+    # parser.add_argument('--trainname', type=str, default='E_b7fd_GNNTr', help='logname')
+    # parser.add_argument('--folder', type=str, default='test', help='logname')
+    # parser.add_argument('--loss', type=str, default='L1', help='L1 best, mse 2nd')
+    # # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to rcs directory')
+    # # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to validation directory')
+    # parser.add_argument('--rcsdir', type=str, default='/mnt/truenas_jiangxiaotian/E/b7fdE_mie_pretrain2', help='Path to rcs directory') #liang
+    # parser.add_argument('--valdir', type=str, default='/mnt/truenas_jiangxiaotian/E/b7fdE_mie_val2', help='Path to validation directory') #liang
+    # parser.add_argument('--pretrainweight', type=str, default='/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1129_TransConv_pretrain_b7fd_nofilter/last.pt', help='Path to pretrained weights')
+
+    # parser.add_argument('--seed', type=int, default=None, help='Random seed for reproducibility')
+    # parser.add_argument('--attn', type=int, default=1, help='Random seed for reproducibility')
+    # parser.add_argument('--gama', type=float, default=0.001, help='control max loss, i love 0.001')
+    # parser.add_argument('--beta', type=float, default=0., help='seems to be control contrastive loss, i forgot, useless, 0')
+    # parser.add_argument('--lr', type=float, default=0.001, help='Loss threshold or gamma parameter')
+    # parser.add_argument('--cuda', type=str, default='cuda:0', help='CUDA device to use')
+
     parser.add_argument('--epoch', type=int, default=400, help='Number of training epochs')
     parser.add_argument('--batch', type=int, default=1, help='batchsize')
+    parser.add_argument('--valbatch', type=int, default=40, help='valbatchsize')
     parser.add_argument('--use_preweight', type=bool, default=False, help='Whether to use pretrained weights')
     parser.add_argument('--smooth', type=bool, default=False, help='Whether to use pretrained weights')
     parser.add_argument('--draw', type=bool, default=True, help='Whether to enable drawing')
 
     parser.add_argument('--trainname', type=str, default='bb7c_test', help='logname')
     parser.add_argument('--folder', type=str, default='test', help='logname')
+    parser.add_argument('--mode', type=str, default='fasttest', help='10train 50fine 100fine fasttest')
     parser.add_argument('--loss', type=str, default='L1', help='L1 best, mse 2nd')
     # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to rcs directory')
     # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to validation directory')
@@ -58,15 +82,6 @@ def parse_args():
     # parser.add_argument('--fold', type=str, default='fold1', help='Fold to use for validation (e.g., fold4)')
     return parser.parse_args()
 
-datafolder = '/mnt/truenas_jiangxiaotian/allplanes/mie'
-# Fold1 = ['b871_mie_10train','bb7d_mie_10train','b827_mie_10train','b905_mie_10train','bbc6_mie_10train']
-# Fold2 = ['b80b_mie_10train','ba0f_mie_10train','b7c1_mie_10train','b9e6_mie_10train','bb7c_mie_10train']
-# Fold3 = ['b943_mie_10train','b97b_mie_10train','b812_mie_10train','bc2c_mie_10train','b974_mie_10train']
-# Fold4 = ['bb26_mie_10train','b7fd_mie_10train','baa9_mie_10train','b979_mie_10train','b8ed_mie_10train']
-Fold1 = ['b871_mie_50train','bb7d_mie_50train','b827_mie_50train','b905_mie_50train','bbc6_mie_50train']
-Fold2 = ['b80b_mie_50train','ba0f_mie_50train','b7c1_mie_50train','b9e6_mie_50train','bb7c_mie_50train']
-Fold3 = ['b943_mie_50train','b97b_mie_50train','b812_mie_50train','bc2c_mie_50train','b974_mie_50train']
-Fold4 = ['bb26_mie_50train','b7fd_mie_50train','baa9_mie_50train','b979_mie_50train','b8ed_mie_50train']
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 tic0 = time.time()
 tic = time.time()
@@ -94,39 +109,44 @@ learning_rate = args.lr
 cudadevice = args.cuda
 name = args.trainname
 folder = args.folder
+mode = args.mode
 batchsize = args.batch
+valbatch = args.valbatch
 loss_type = args.loss
 
-if args.fold:
+datafolder = '/mnt/truenas_jiangxiaotian/allplanes/mie' #liang
+# datafolder = '/mnt/SrvDataDisk/Datasets_3DEM/allplanes/mie'
+
+# Fold1 = ['b871_mie_10train','bb7d_mie_10train','b827_mie_10train','b905_mie_10train','bbc6_mie_10train']
+# Fold2 = ['b80b_mie_10train','ba0f_mie_10train','b7c1_mie_10train','b9e6_mie_10train','bb7c_mie_10train']
+# Fold3 = ['b943_mie_10train','b97b_mie_10train','b812_mie_10train','bc2c_mie_10train','b974_mie_10train']
+# Fold4 = ['bb26_mie_10train','b7fd_mie_10train','baa9_mie_10train','b979_mie_10train','b8ed_mie_10train']
+# Fold1 = ['b871_mie_50train','bb7d_mie_50train','b827_mie_50train','b905_mie_50train','bbc6_mie_50train']
+# Fold2 = ['b80b_mie_50train','ba0f_mie_50train','b7c1_mie_50train','b9e6_mie_50train','bb7c_mie_50train']
+# Fold3 = ['b943_mie_50train','b97b_mie_50train','b812_mie_50train','bc2c_mie_50train','b974_mie_50train']
+# Fold4 = ['bb26_mie_50train','b7fd_mie_50train','baa9_mie_50train','b979_mie_50train','b8ed_mie_50train']
+Fold1 = ['b871','bb7d','b827','b905','bbc6']
+Fold2 = ['b80b','ba0f','b7c1','b9e6','bb7c']
+Fold3 = ['b943','b97b','b812','bc2c','b974']
+Fold4 = ['bb26','b7fd','baa9','b979','b8ed']
+
+if args.fold: #fold模式的话，val和train file就用飞机名字人工处理，然后得到地址
     fold_mapping = {
         'fold1': Fold1,
         'fold2': Fold2,
         'fold3': Fold3,
         'fold4': Fold4,
     }
-    val_files = fold_mapping[args.fold]
-    train_files = [files for fold in [Fold1, Fold2, Fold3, Fold4] if fold != val_files for files in fold]
+    val_planes = fold_mapping[args.fold]
+    train_planes = [files for fold in [Fold1, Fold2, Fold3, Fold4] if fold != val_planes for files in fold]
+    # val_files = fold_mapping[args.fold]
+    # train_files = [files for fold in [Fold1, Fold2, Fold3, Fold4] if fold != val_files for files in fold]
     valdir = None
     rcsdir = None
-    if '10train' in train_files[0]:
-        mode = 'pretrain'
-    else:
-        if use_preweight == True:
-            mode = 'finetune'
-        else:
-            mode = 'train'
-else:
+
+else: #非fold普通模式的话，val和train file就直接指定地址
     rcsdir = args.rcsdir
     valdir = args.valdir
-    if 'pretrain' in rcsdir:
-        mode = 'pretrain'
-    elif 'test' in rcsdir:
-        mode = 'fasttest'
-    else:
-        if use_preweight == True:
-            mode = 'finetune'
-        else:
-            mode = 'train'
 
 # setup_seed(seed)
 if args.seed is not None:
@@ -199,13 +219,28 @@ logger.info(f'seed:{seed}')
 # logger.info(f'使用jxtnet_transformerEncoder.py')
 # logger.info(f'参数设置：batchsize={batchsize}, epoch={epoch}, use_preweight={use_preweight}, cudadevice={cudadevice}, learning_rate={learning_rate}, lr_time={lr_time}, shuffle={shuffle}, gama={gama}, seed={seed}, rcsdir = {rcsdir}, valdir = {valdir}, pretrainweight = {pretrainweight}')
 if args.fold:
-    logger.info(f'数据集用{args.fold}验证也就是{train_files}训练')
-    dataset = MultiEMRCSDataset(train_files, datafolder)
-    valdataset = MultiEMRCSDataset(val_files, datafolder)
-    dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffle, num_workers=0)
-    valdataloader = DataLoader.DataLoader(valdataset, batch_size=60, shuffle=shuffle, num_workers=0)
-    logger.info(f'训练数据集点数{dataset.__len__()}，验证数据集点数{valdataset.__len__()}')
+    logger.info(f'数据集用{args.fold}验证也就是{train_planes}训练, mode={mode}')
+    if mode=='10train' or 'fasttest': #10train 50fine 100fine
+        train_files = [plane + '_mie_10train' for plane in train_planes]
+    elif mode=='50fine':
+        train_files = [plane + '_mie_50train' for plane in train_planes]
+    elif mode=='100fine':
+        train_files = [plane + '_mie_train' for plane in train_planes]
     
+    val_files = [plane + '_mie_val' for plane in val_planes]
+
+    dataset = MultiEMRCSDataset(train_files, datafolder)
+    dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffle, num_workers=0)
+    # valdataset = MultiEMRCSDataset(val_files, datafolder)
+    # valdataloader = DataLoader.DataLoader(valdataset, batch_size=valbatch, shuffle=shuffle, num_workers=0)
+    val_dataloaders = {} #现在val是按飞机的，按飞机创建了datasets实例化类用飞机名作为键来存对应飞机的dataloader实例化类作为值
+    for valfile1 in val_files:
+        valdataset = MultiEMRCSDataset(valfile1, datafolder)
+        plane1 = valfile1[:4]
+        val_dataloaders[plane1] = DataLoader.DataLoader(valdataset, batch_size=valbatch, shuffle=False, num_workers=0)
+
+    logger.info(f'训练数据集点数{dataset.__len__()}，验证数据集点数{valdataset.__len__()}')
+
 else:
     logger.info(f'数据集用{rcsdir}训练')
     filelist = os.listdir(rcsdir)
@@ -214,7 +249,7 @@ else:
 
     valfilelist = os.listdir(valdir)
     valdataset = EMRCSDataset(valfilelist, valdir) #这里进的是init
-    valdataloader = DataLoader.DataLoader(valdataset, batch_size=60, shuffle=shuffle, num_workers=0) #这里调用的是getitem
+    valdataloader = DataLoader.DataLoader(valdataset, batch_size=valbatch, shuffle=shuffle, num_workers=0) #transformer的话40才行？20.。 纯GNN的话60都可以
     logger.info(f'训练数据集点数{dataset.__len__()}，验证数据集点数{valdataset.__len__()}')
 
 logger.info(f'保存到{lastsavedir}')
@@ -469,28 +504,72 @@ for i in range(epoch):
     plt.savefig(allinonesavedir)
     plt.close()
 
-    # plt.show()
-    if mode == "pretrain":
-        # if (i+1) % 20 == 0 or i == -1: 
-        if (i+1) % 1 == 0 or i == -1: 
-            if (i+1) % 100 == 0:
-            # if i+1==epoch:
-                valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
-            else:
-                valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
-            
-    elif mode == "fasttest":
-        if (i+1) % 1 == 0 or i == -1: 
-            if i+1==epoch:
-                valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
-            else:
-                valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
-    else :
-        if (i+1) % 10 == 0 or i == -1:
-            if (i+1) % 10 == 0 or i+1==epoch:
-                valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
-            else:
-                valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+    if args.fold: #fold模式
+        val_mse_per_plane = {}
+        val_psnr_per_plane = {}
+        val_ssim_per_plane = {}
+        # total_val_metrics = {'mse': 0, 'other_metrics': 0}  # 其他指标可以在这里添加
+        valallpsnrs = []
+        valallssims = []
+        valallmses = []
+        for plane, valdataloader in val_dataloaders.items():
+            logger.info(f"开始对飞机{plane}进行验证")
+            valplanedir=os.path.join(save_dir,plane)
+            if mode == "10train":
+                if (i+1) % 1 == 0 or i == -1: 
+                    if (i+1) % 100 == 0 or i+1==epoch: #save_dir是根目录
+                        valmse, valpsnr, valssim, valpsnrs, valssims, valmses =valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=valplanedir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+                    else:
+                        valmse, valpsnr, valssim, valpsnrs, valssims, valmses =valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=valplanedir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+            elif mode == "fasttest":
+                if (i+1) % 1 == 0 or i == -1: 
+                    if i+1==epoch:
+                        valmse, valpsnr, valssim, valpsnrs, valssims, valmses =valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=valplanedir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+                    else:
+                        valmse, valpsnr, valssim, valpsnrs, valssims, valmses =valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=valplanedir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+            else :
+                if (i+1) % 1 == 0 or i == -1:
+                    if (i+1) % 2 == 0 or i+1==epoch:
+                        valmse, valpsnr, valssim, valpsnrs, valssims, valmses =valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=valplanedir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+                    else:
+                        valmse, valpsnr, valssim, valpsnrs, valssims, valmses =valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=valplanedir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+            val_mse_per_plane[plane] = valmse
+            val_psnr_per_plane[plane] = valpsnr
+            val_ssim_per_plane[plane] = valssim
+
+            valallpsnrs.extend(valpsnrs)  # extend 方法：用于将一个列表的所有元素添加到另一个列表的末尾。它和 append 不同，extend 会将整个列表展平并逐项添加到目标列表。
+            valallssims.extend(valssims)
+            valallmses.extend(valmses) 
+        ave_psnr = sum(valallpsnrs)/len(valallpsnrs)
+        ave_ssim = sum(valallssims)/len(valallssims)
+        ave_mse = sum(valallmses)/len(valallmses)
+        statisdir = os.path.join(save_dir,f'statisticAll_epoch{epoch}_PSNR{ave_psnr:.2f}dB_SSIM{ave_ssim:.4f}_MSE:{ave_mse:.4f}.png')
+        plotstatistic2(valallpsnrs,valallssims,valallmses,statisdir)
+        logger.info(f'各飞机val指标mse:{val_mse_per_plane},psnr:{val_psnr_per_plane},ssim:{val_ssim_per_plane}')
+        logger.info(f'总val指标mse:{ave_mse},psnr:{ave_psnr},ssim:{ave_ssim}')
+
+    else: #普通模式
+        if mode == "10train":
+            # if (i+1) % 20 == 0 or i == -1: 
+            if (i+1) % 1 == 0 or i == -1: 
+                if (i+1) % 100 == 0:
+                # if i+1==epoch:
+                    valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+                else:
+                    valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+                
+        elif mode == "fasttest":
+            if (i+1) % 1 == 0 or i == -1: 
+                if i+1==epoch:
+                    valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+                else:
+                    valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+        else :
+            if (i+1) % 1 == 0 or i == -1:
+                if (i+1) % 2 == 0 or i+1==epoch:
+                    valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+                else:
+                    valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
 
     # if maxpsnr < valpsnr:
     #     maxpsnr = valpsnr
