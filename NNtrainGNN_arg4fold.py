@@ -64,10 +64,10 @@ def parse_args():
     parser.add_argument('--folder', type=str, default='test', help='logname')
     parser.add_argument('--mode', type=str, default='fasttest', help='10train 50fine 100fine fasttest')
     parser.add_argument('--loss', type=str, default='L1', help='L1 best, mse 2nd')
-    # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to rcs directory')
-    # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to validation directory')
-    parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to rcs directory') #liang
-    parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to validation directory') #liang
+    parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to rcs directory')
+    parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to validation directory')
+    # parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to rcs directory') #liang
+    # parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to validation directory') #liang
     parser.add_argument('--pretrainweight', type=str, default='/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1129_TransConv_pretrain_b7fd_nofilter/last.pt', help='Path to pretrained weights')
 
     parser.add_argument('--seed', type=int, default=7, help='Random seed for reproducibility')
@@ -114,8 +114,8 @@ batchsize = args.batch
 valbatch = args.valbatch
 loss_type = args.loss
 
-datafolder = '/mnt/truenas_jiangxiaotian/allplanes/mie' #liang
-# datafolder = '/mnt/SrvDataDisk/Datasets_3DEM/allplanes/mie'
+# datafolder = '/mnt/truenas_jiangxiaotian/allplanes/mie' #liang
+datafolder = '/mnt/SrvDataDisk/Datasets_3DEM/allplanes/mie'
 
 # Fold1 = ['b871_mie_10train','bb7d_mie_10train','b827_mie_10train','b905_mie_10train','bbc6_mie_10train']
 # Fold2 = ['b80b_mie_10train','ba0f_mie_10train','b7c1_mie_10train','b9e6_mie_10train','bb7c_mie_10train']
@@ -516,6 +516,8 @@ for i in range(epoch):
         for plane, valdataloader in val_dataloaders.items():
             logger.info(f"开始对飞机{plane}进行验证")
             valplanedir=os.path.join(save_dir,plane)
+            if not os.path.exists(valplanedir):
+                os.makedirs(valplanedir)
             if mode == "10train":
                 if (i+1) % 1 == 0 or i == -1: 
                     if (i+1) % 100 == 0 or i+1==epoch: #save_dir是根目录

@@ -375,7 +375,8 @@ class MeshCodec(Module):
     ): 
         super().__init__()
         #----------------------------------------------------jxt decoder----------------------------------------------------------
-        self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0)
+        self.conv1d1 = nn.Conv1d(576, 1, kernel_size=10, stride=10, dilation=1 ,padding=0) #草 就靠这个又减维度又缩长度啊。。
+        # self.conv1d1 = nn.Conv1d(784, 1, kernel_size=10, stride=10, dilation=1 ,padding=0) #草 就靠这个又减维度又缩长度啊。。
         self.fc1d1 = nn.Linear(2250, middim*45*90)
 
         # Decoder3
@@ -535,23 +536,18 @@ class MeshCodec(Module):
     @beartype
     def decode( 
         self,
-        x, 
-        em_embed,
+        x, #torch.Size([10, 12996, 576])
+        em_embed, #torch.Size([10, 12996, 208])
     ):
-        '''(
-            encoded, 
-            em_embed,
-            in_em_angle_vec
-        )'''
-        x = torch.cat([x, em_embed], dim=2) 
+        # x = torch.cat([x, em_embed], dim=2) 
         pad_size = 22500 - x.size(1)
         x = F.pad(x, (0, 0, 0, pad_size)) 
         x = x.view(x.size(0), -1, 22500) 
         
         # ------------------------1D Conv+FC-----------------------------
-        x = self.conv1d1(x)
-        x = self.fc1d1(x)
-        x = x.view(x.size(0), -1, 45, 90)
+        x = self.conv1d1(x) #torch.Size([10, 784, 22500]) 到 torch.Size([10, 1, 2250])
+        x = self.fc1d1(x) #torch.Size([10, 1, 259200])
+        x = x.view(x.size(0), -1, 45, 90) #torch.Size([10, 64, 45, 90])
 
         # ------------------------2D upConv------------------------------
         x = self.upconv1(x)
@@ -642,14 +638,6 @@ class MeshCodec(Module):
         else:
             GT = GT[:,:-1,:] #361*720变360*720
             loss = loss_fn(decoded, GT, loss_type=loss_type, gama=gama)
-            # l1loss = nn.L1Loss(reduction='sum')
-            # loss = l1loss(decoded,GT)
-
-            # psnr_list = batch_psnr(decoded, GT)
-            # ssim_list = batch_ssim(decoded, GT)
-            # # mean_psnr = sum(psnr_list) / batch_size
-            # mean_psnr = psnr_list.mean()
-            # mean_ssim = ssim_list.mean()
 
             with torch.no_grad():
                 psnr_list = psnr(decoded, GT)
