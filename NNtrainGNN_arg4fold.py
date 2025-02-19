@@ -58,7 +58,8 @@ def parse_args():
     # parser.add_argument('--fold', type=str, default='fold1', help='Fold to use for validation (e.g., fold4)')
     return parser.parse_args()
 
-datafolder = '/mnt/truenas_jiangxiaotian/allplanes/mie'
+# datafolder = '/mnt/truenas_jiangxiaotian/allplanes/mie' #liang
+datafolder = '/mnt/SrvDataDisk/Datasets_3DEM/allplanes/mie'
 # Fold1 = ['b871_mie_10train','bb7d_mie_10train','b827_mie_10train','b905_mie_10train','bbc6_mie_10train']
 # Fold2 = ['b80b_mie_10train','ba0f_mie_10train','b7c1_mie_10train','b9e6_mie_10train','bb7c_mie_10train']
 # Fold3 = ['b943_mie_10train','b97b_mie_10train','b812_mie_10train','bc2c_mie_10train','b974_mie_10train']
@@ -486,8 +487,8 @@ for i in range(epoch):
             else:
                 valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
     else :
-        if (i+1) % 10 == 0 or i == -1:
-            if (i+1) % 10 == 0 or i+1==epoch:
+        if (i+1) % 1 == 0 or i == -1:
+            if (i+1) % 2 == 0 or i+1==epoch:
                 valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
             else:
                 valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
