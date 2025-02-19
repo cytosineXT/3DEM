@@ -516,6 +516,8 @@ for i in range(epoch):
         for plane, valdataloader in val_dataloaders.items():
             logger.info(f"开始对飞机{plane}进行验证")
             valplanedir=os.path.join(save_dir,plane)
+            if not os.path.exists(valplanedir):
+                os.makedirs(valplanedir)
             if mode == "10train":
                 if (i+1) % 1 == 0 or i == -1: 
                     if (i+1) % 100 == 0 or i+1==epoch: #save_dir是根目录
