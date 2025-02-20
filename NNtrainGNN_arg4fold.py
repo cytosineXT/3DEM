@@ -189,6 +189,16 @@ alpha = 0.0
 #     lr_time = epoch
 lr_time = epoch
 
+val_mse_per_plane = {plane: [] for plane in val_planes}
+val_psnr_per_plane = {plane: [] for plane in val_planes}
+val_ssim_per_plane = {plane: [] for plane in val_planes}
+valallpsnrs = []
+valallssims = []
+valallmses = []
+allavemses = []
+allavepsnrs = []
+allavessims = []
+
 encoder_layer = 6
 decoder_outdim = 12  # 3S 6M 12L
 paddingsize = 18000
@@ -208,6 +218,10 @@ msesavedir = os.path.join(save_dir,'mse.png')
 nmsesavedir = os.path.join(save_dir,'nmse.png')
 rmsesavedir = os.path.join(save_dir,'rmse.png')
 l1savedir = os.path.join(save_dir,'l1.png')
+valmsesavedir = os.path.join(save_dir,'valmse.png')
+valpsnrsavedir = os.path.join(save_dir,'valpsnr.png')
+valssimsavedir = os.path.join(save_dir,'valssim.png')
+
 percentage_errorsavedir = os.path.join(save_dir,'percentage_error.png')
 allinonesavedir = os.path.join(save_dir,'allinone.png')
 logdir = os.path.join(save_dir,'log.txt')
@@ -506,13 +520,6 @@ for i in range(epoch):
     plt.close()
 
     if args.fold: #fold模式
-        val_mse_per_plane = {}
-        val_psnr_per_plane = {}
-        val_ssim_per_plane = {}
-        # total_val_metrics = {'mse': 0, 'other_metrics': 0}  # 其他指标可以在这里添加
-        valallpsnrs = []
-        valallssims = []
-        valallmses = []
         for plane, valdataloader in val_dataloaders.items():
             logger.info(f"开始对飞机{plane}进行验证")
             valplanedir=os.path.join(save_dir,plane)
@@ -536,9 +543,9 @@ for i in range(epoch):
                         valmse, valpsnr, valssim, valpsnrs, valssims, valmses =valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=valplanedir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
                     else:
                         valmse, valpsnr, valssim, valpsnrs, valssims, valmses =valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=valplanedir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
-            val_mse_per_plane[plane] = valmse
-            val_psnr_per_plane[plane] = valpsnr
-            val_ssim_per_plane[plane] = valssim
+            val_mse_per_plane[plane].append(valmse.item())
+            val_psnr_per_plane[plane].append(valpsnr.item())
+            val_ssim_per_plane[plane].append(valssim.item())
 
             valallpsnrs.extend(valpsnrs)  # extend 方法：用于将一个列表的所有元素添加到另一个列表的末尾。它和 append 不同，extend 会将整个列表展平并逐项添加到目标列表。
             valallssims.extend(valssims)
@@ -546,10 +553,54 @@ for i in range(epoch):
         ave_psnr = sum(valallpsnrs)/len(valallpsnrs)
         ave_ssim = sum(valallssims)/len(valallssims)
         ave_mse = sum(valallmses)/len(valallmses)
+        allavemses.append(ave_mse) #用来画图的all平均mse
+        allavepsnrs.append(ave_psnr)
+        allavessims.append(ave_ssim)
+
         statisdir = os.path.join(save_dir,f'statisticAll_epoch{epoch}_PSNR{ave_psnr:.2f}dB_SSIM{ave_ssim:.4f}_MSE:{ave_mse:.4f}.png')
         plotstatistic2(valallpsnrs,valallssims,valallmses,statisdir)
-        logger.info(f'各飞机val指标mse:{val_mse_per_plane},psnr:{val_psnr_per_plane},ssim:{val_ssim_per_plane}')
-        logger.info(f'总val指标mse:{ave_mse},psnr:{ave_psnr},ssim:{ave_ssim}')
+        valmse = ave_mse
+
+        # 绘制各飞机的mse曲线图
+        plt.clf()
+        for plane, mse_values in val_mse_per_plane.items():
+            plt.plot(range(0, i+1), mse_values, label=plane)
+        plt.plot(range(0, i+1),allavemses, label='all')
+        plt.xlabel('Epoch')
+        plt.ylabel('MSE')
+        plt.title('Val MSE Curve')
+        plt.legend()
+        plt.savefig(valmsesavedir)
+        plt.close()
+
+        plt.clf()
+        for plane, psnr_values in val_psnr_per_plane.items():
+            plt.plot(range(0, i+1), psnr_values, label=plane)
+        plt.plot(range(0, i+1),allavepsnrs, label='all')
+        plt.xlabel('Epoch')
+        plt.ylabel('PSNR')
+        plt.title('Val PSNR Curve')
+        plt.legend()
+        plt.savefig(valpsnrsavedir)
+        plt.close()
+
+        plt.clf()
+        for plane, ssim_values in val_ssim_per_plane.items():
+            plt.plot(range(0, i+1), ssim_values, label=plane)
+        plt.plot(range(0, i+1),allavessims, label='all')
+        plt.xlabel('Epoch')
+        plt.ylabel('SSIM')
+        plt.title('Val SSIM Curve')
+        plt.legend()
+        plt.savefig(valssimsavedir)
+        plt.close()
+
+
+        lastmse = {k: v[-1] for k, v in val_mse_per_plane.items() if v}
+        lastpsnr = {k: v[-1] for k, v in val_psnr_per_plane.items() if v}
+        lastssim = {k: v[-1] for k, v in val_ssim_per_plane.items() if v}
+        logger.info(f'epoch{i}各飞机val指标mse:{lastmse},\npsnr:{lastpsnr},\nssim:{lastssim}')
+        logger.info(f'总val指标mse:{ave_mse:.4f},psnr:{ave_psnr:.2f},ssim:{ave_ssim:.4f}')
 
     else: #普通模式
         if mode == "10train":
