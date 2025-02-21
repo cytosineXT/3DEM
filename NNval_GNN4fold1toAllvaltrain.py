@@ -2,7 +2,7 @@ import torch
 import time
 # from net.jxtnet_GNNn0115cond import MeshCodec
 from net.jxtnet_GNNn0118acEn import MeshCodec
-from net.utils_newload import increment_path, EMRCSDataset, get_logger, find_matching_files, process_files
+from net.utils_newload import increment_path, EMRCSDataset, get_logger, find_matching_files, process_files, MultiEMRCSDataset
 import torch.utils.data.dataloader as DataLoader
 # import trimesh
 from pathlib import Path
@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import norm
 from matplotlib.ticker import FuncFormatter
+from matplotlib.lines import Line2D
 
 FILE = Path(__file__).resolve()
 ROOT = FILE.parents[0]  # YOLOv5 root directory
@@ -264,32 +265,205 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, trainval=Fals
 
 
 if __name__ == '__main__':
-
+    starttime = time.time()
+    # 初始化参数
     trainval = False
     cuda = 'cuda:1'
+    cuda = 'cpu'
     draw = True
-    # draw = False
+    draw = False
     draw3d = False
     lgrcs = False
     device = torch.device(cuda if torch.cuda.is_available() else "cpu")
-    batchsize = 40 #纯GNN60 带Transformer40
-
-    # weight = r'/home/jiangxiaotian/workspace/3DEM/outputGNN/train2/0211_sd7_finetuneL1_mul50fold3_GNNTr_e200Tr0_cuda:1_break60/last.pt'
-    # weight = r'/home/jiangxiaotian/workspace/3DEM/outputGNN/b7fd_pretrain_m0378.pt'
-    weight = r'/home/jiangxiaotian/workspace/3DEM/outputGNN/b7fd_50fine_m0090.pt'
-    valdir = r'/mnt/truenas_jiangxiaotian/allplanes/mie/b7fd_mie_val'
-    
+    # valbatch = 60
+    valbatch = 20
+    epoch = -1
+    attnlayer = 0
+    # attnlayer = 1
+    val_mse_per_plane = {}
+    val_psnr_per_plane = {}
+    val_ssim_per_plane = {}
     from datetime import datetime
     date = datetime.today().strftime("%m%d")
-    save_dir = str(increment_path(Path(ROOT / "outputGNN" / "inference" /f'{date}_b7fd50fineval'), exist_ok=False))
-    logdir = os.path.join(save_dir,'alog.txt')
+    # save_dir = str(increment_path(Path(ROOT / "outputGNN" / "inference" / f'{date}_testlegend'), exist_ok=False))
+    save_dir = str(increment_path(Path(ROOT / "outputGNN" / "inference" / f'{date}_fold2train10valall'), exist_ok=False))
+    # save_dir = str(increment_path(Path(ROOT / "outputGNN" / "inference" / f'{date}_b7fdfine50valall'), exist_ok=False))
+    logdir = os.path.join(save_dir, 'alog.txt')
     logger = get_logger(logdir)
-    epoch = -1
-    attnlayer = 1
-    
-    valfilelist = os.listdir(valdir)
-    valdataset = EMRCSDataset(valfilelist, valdir) #这里进的是init
-    valdataloader = DataLoader.DataLoader(valdataset, batch_size=batchsize, shuffle=False, num_workers=16, pin_memory=True)
-    if trainval == False:
-        logger.info(f'正在用{weight}验证推理{valdir}及画图')
-    valmain(draw, device, weight, valdir, save_dir, logger, epoch, trainval, draw3d, attnlayer=attnlayer, valdataloader=valdataloader, batchsize=batchsize)
+    valmsesavedir = os.path.join(save_dir, 'valmse.png')
+    valpsnrsavedir = os.path.join(save_dir, 'valpsnr.png')
+    valssimsavedir = os.path.join(save_dir, 'valssim.png')
+
+    datafolder = r'/mnt/truenas_jiangxiaotian/allplanes/mie'
+    # Fold1 = ['b871','bb7d','b827','b905','bbc6']
+    # Fold2 = ['b80b','ba0f','b7c1','b9e6','bb7c']
+    # Fold3 = ['b943','b97b','b812','bc2c','b974']
+    # Fold4 = ['bb26','b7fd','baa9','b979','b8ed']
+    planes = ['b871', 'bb7d', 'b827', 'b905', 'bbc6', 'b80b', 'ba0f', 'b7c1', 'b9e6', 'bb7c', 'b943', 'b97b', 'b812', 'bc2c', 'b974', 'bb26', 'b7fd', 'baa9', 'b979', 'b8ed']
+    # planes = ['b7fd', 'b8ed']
+
+    # 根据指定的 trainplanes 和 valplanes 来进行划分
+    # trainplanes = ['b7fd']
+    trainplanes = None
+    # valplanes = None
+    valplanes = ['b80b','ba0f','b7c1','b9e6','bb7c']
+
+    # 检查并分配飞机
+    if valplanes is None:
+        valplanes = list(set(planes) - set(trainplanes))  # 剩余飞机分配给valplanes
+    if trainplanes is None:
+        trainplanes = list(set(planes) - set(valplanes))  # 剩余飞机分配给trainplanes
+
+    # weight = r'/home/jiangxiaotian/workspace/3DEM/outputGNN/b7fd_50fine_m0090.pt'
+    weight = r'/home/jiangxiaotian/workspace/3DEM/outputGNN/fold2val_10train_50e_fantastic.pt'
+
+    # 训练集和验证集数据加载
+    # train_files = [plane + '_mie_val' for plane in trainplanes]
+    val_files = [plane + '_mie_val' for plane in planes]
+
+    val_dataloaders = {}
+
+    for valfile1 in val_files:
+        valdataset = MultiEMRCSDataset([valfile1], datafolder)
+        plane1 = valfile1[:4]
+        val_dataloaders[plane1] = DataLoader.DataLoader(valdataset, batch_size=valbatch, shuffle=False, num_workers=16, pin_memory=True)
+
+    # 进行验证推理
+    for plane, valdataloader in val_dataloaders.items():
+        logger.info(f"开始对飞机{plane}进行验证")
+        valplanedir = os.path.join(save_dir, plane)
+        if not os.path.exists(valplanedir):
+            os.makedirs(valplanedir)
+        logger.info(f'正在用{weight}验证推理{plane}及画图')
+        valmse, valpsnr, valssim, valpsnrs, valssims, valmses = valmain(draw, device, weight, valfile1, valplanedir, logger, epoch, trainval, draw3d, attnlayer=attnlayer, valdataloader=valdataloader, batchsize=valbatch)
+        val_mse_per_plane[plane] = valmse.item()
+        val_psnr_per_plane[plane] = valpsnr.item()
+        val_ssim_per_plane[plane] = valssim.item()
+
+    # 计算训练集和验证集的平均值
+    train_mse_values = [val_mse_per_plane[plane] for plane in trainplanes]
+    val_mse_values = [val_mse_per_plane[plane] for plane in valplanes]
+    train_psnr_values = [val_psnr_per_plane[plane] for plane in trainplanes]
+    val_psnr_values = [val_psnr_per_plane[plane] for plane in valplanes]
+    train_ssim_values = [val_ssim_per_plane[plane] for plane in trainplanes]
+    val_ssim_values = [val_ssim_per_plane[plane] for plane in valplanes]
+
+    allavemse_train = np.mean(train_mse_values)
+    allavemse_val = np.mean(val_mse_values)
+    allavepsnr_train = np.mean(train_psnr_values)
+    allavepsnr_val = np.mean(val_psnr_values)
+    allavessim_train = np.mean(train_ssim_values)
+    allavessim_val = np.mean(val_ssim_values)
+
+    # 绘制 MSE 的柱状图
+    plt.clf()
+    sorted_mse = sorted(val_mse_per_plane.items(), key=lambda x: x[1])  # 从小到大排序
+    planes_mse, mse_values = zip(*sorted_mse)
+
+    bars = plt.bar(planes_mse, mse_values, label='MSE per Plane')
+    plt.axhline(allavemse_train, color='g', linestyle='--', label=f'Average Held-Out Val MSE ({allavemse_train:.4f})')
+    plt.axhline(allavemse_val, color='b', linestyle='--', label=f'Average OOD Val MSE ({allavemse_val:.4f})')
+    plt.xlabel('Plane')
+    plt.ylabel('MSE')
+    plt.title('Validation MSE per Plane')
+    legend_elements = [
+        Line2D([0], [0], color='g', lw=2, linestyle='--', label=f'Average Held-Out Val MSE ({allavemse_train:.4f})'),
+        Line2D([0], [0], color='b', lw=2, linestyle='--', label=f'Average OOD Val MSE ({allavemse_val:.4f})'),
+        Line2D([0], [0], color='g', lw=10,  label='Train Plane'),
+        Line2D([0], [0], color='b', lw=10,  label='Val Plane')
+    ]
+    plt.legend(handles=legend_elements, loc='best')
+    # plt.legend()
+    plt.xticks(rotation=45)
+
+    # 为训练集和验证集的柱子分别着色
+    for i, bar in enumerate(bars):
+        if planes_mse[i] in trainplanes:
+            bar.set_color('g')  # 训练集柱子为绿色
+        else:
+            bar.set_color('b')  # 验证集柱子为蓝色
+
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width() / 2, height, f'{height:.4f}', ha='center', va='bottom', rotation=45)
+
+    plt.ylim(0, max(mse_values) * 1.2)  # 增加 y 轴的上限，使文本有足够空间
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.9)
+    plt.savefig(valmsesavedir)
+    plt.close()
+
+    # 绘制 PSNR 的柱状图
+    plt.clf()
+    sorted_psnr = sorted(val_psnr_per_plane.items(), key=lambda x: x[1], reverse=True)  # 从大到小排序
+    planes_psnr, psnr_values = zip(*sorted_psnr)
+
+    bars = plt.bar(planes_psnr, psnr_values, label='PSNR per Plane')
+    plt.axhline(allavepsnr_train, color='g', linestyle='--', label=f'Average Held-Out Val PSNR ({allavepsnr_train:.2f})')
+    plt.axhline(allavepsnr_val, color='b', linestyle='--', label=f'Average OOD Val PSNR ({allavepsnr_val:.2f})')
+    plt.xlabel('Plane')
+    plt.ylabel('PSNR')
+    plt.title('Validation PSNR per Plane')
+    # plt.legend()
+    legend_elements = [
+        Line2D([0], [0], color='g', lw=2, linestyle='--',label=f'Average Held-Out Val PSNR ({allavepsnr_train:.2f})'),
+        Line2D([0], [0], color='b', lw=2, linestyle='--',label=f'Average OOD Val PSNR ({allavepsnr_val:.2f})'),
+        Line2D([0], [0], color='g', lw=10,  label='Train Plane'),
+        Line2D([0], [0], color='b', lw=10,  label='Val Plane')
+    ]
+    plt.legend(handles=legend_elements, loc='best')
+    plt.xticks(rotation=45)
+
+    # 为训练集和验证集的柱子分别着色
+    for i, bar in enumerate(bars):
+        if planes_psnr[i] in trainplanes:
+            bar.set_color('g')  # 训练集柱子为绿色
+        else:
+            bar.set_color('b')  # 验证集柱子为蓝色
+
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width() / 2, height, f'{height:.2f}', ha='center', va='bottom', rotation=45)
+
+    plt.ylim(0, max(psnr_values) * 1.2)
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.9)
+    plt.savefig(valpsnrsavedir)
+    plt.close()
+
+    # 绘制 SSIM 的柱状图
+    plt.clf()
+    sorted_ssim = sorted(val_ssim_per_plane.items(), key=lambda x: x[1], reverse=True)  # 从大到小排序
+    planes_ssim, ssim_values = zip(*sorted_ssim)
+
+    bars = plt.bar(planes_ssim, ssim_values, label='SSIM per Plane')
+    plt.axhline(allavessim_train, color='g', linestyle='--', label=f'Average Held-Out Val SSIM ({allavessim_train:.4f})')
+    plt.axhline(allavessim_val, color='b', linestyle='--', label=f'Average OOD Val SSIM ({allavessim_val:.4f})')
+    plt.xlabel('Plane')
+    plt.ylabel('SSIM')
+    plt.title('Validation SSIM per Plane')
+    # plt.legend()
+    legend_elements = [
+        Line2D([0], [0], color='g', lw=2, linestyle='--',label=f'Average Held-Out Val SSIM ({allavessim_train:.4f})'),
+        Line2D([0], [0], color='b', lw=2, linestyle='--',label=f'Average OOD Val SSIM ({allavessim_val:.4f})'),
+        Line2D([0], [0], color='g', lw=10,  label='Train Plane'),
+        Line2D([0], [0], color='b', lw=10,  label='Val Plane')
+    ]
+    plt.legend(handles=legend_elements, loc='best')
+    plt.xticks(rotation=45)
+
+    # 为训练集和验证集的柱子分别着色
+    for i, bar in enumerate(bars):
+        if planes_ssim[i] in trainplanes:
+            bar.set_color('g')  # 训练集柱子为绿色
+        else:
+            bar.set_color('b')  # 验证集柱子为蓝色
+
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width() / 2, height, f'{height:.4f}', ha='center', va='bottom', rotation=45)
+
+    plt.ylim(0, max(ssim_values) * 1.2)
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.9)
+    plt.savefig(valssimsavedir)
+    plt.close()
+
+    logger.info(f'总耗时：{(time.time()-starttime)/3600:.2f}小时或{(time.time()-starttime)/60:.2f}分钟')

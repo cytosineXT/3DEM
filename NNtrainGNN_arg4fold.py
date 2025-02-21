@@ -64,10 +64,10 @@ def parse_args():
     parser.add_argument('--folder', type=str, default='test', help='logname')
     parser.add_argument('--mode', type=str, default='fasttest', help='10train 50fine 100fine fasttest')
     parser.add_argument('--loss', type=str, default='L1', help='L1 best, mse 2nd')
-    parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to rcs directory')
-    parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to validation directory')
-    # parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to rcs directory') #liang
-    # parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to validation directory') #liang
+    # parser.add_argument('--rcsdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to rcs directory')
+    # parser.add_argument('--valdir', type=str, default='/home/ljm/workspace/datasets/traintest2', help='Path to validation directory')
+    parser.add_argument('--rcsdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to rcs directory') #liang
+    parser.add_argument('--valdir', type=str, default='/home/jiangxiaotian/datasets/traintest2', help='Path to validation directory') #liang
     parser.add_argument('--pretrainweight', type=str, default='/mnt/SrvUserDisk/JiangXiaotian/workspace/3DEM/output/train/1129_TransConv_pretrain_b7fd_nofilter/last.pt', help='Path to pretrained weights')
 
     parser.add_argument('--seed', type=int, default=7, help='Random seed for reproducibility')
@@ -78,8 +78,8 @@ def parse_args():
     parser.add_argument('--cuda', type=str, default='cuda:0', help='CUDA device to use')
 
     # 新增参数
-    # parser.add_argument('--fold', type=str, default=None, help='Fold to use for validation (e.g., fold4)')
-    parser.add_argument('--fold', type=str, default='fold3', help='Fold to use for validation (e.g., fold4)')
+    parser.add_argument('--fold', type=str, default=None, help='Fold to use for validation (e.g., fold4)')
+    # parser.add_argument('--fold', type=str, default='fold3', help='Fold to use for validation (e.g., fold4)')
     return parser.parse_args()
 
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
@@ -114,8 +114,8 @@ batchsize = args.batch
 valbatch = args.valbatch
 loss_type = args.loss
 
-# datafolder = '/mnt/truenas_jiangxiaotian/allplanes/mie' #liang
-datafolder = '/mnt/SrvDataDisk/Datasets_3DEM/allplanes/mie'
+datafolder = '/mnt/truenas_jiangxiaotian/allplanes/mie' #liang
+# datafolder = '/mnt/SrvDataDisk/Datasets_3DEM/allplanes/mie'
 
 # Fold1 = ['b871_mie_10train','bb7d_mie_10train','b827_mie_10train','b905_mie_10train','bbc6_mie_10train']
 # Fold2 = ['b80b_mie_10train','ba0f_mie_10train','b7c1_mie_10train','b9e6_mie_10train','bb7c_mie_10train']
@@ -189,15 +189,6 @@ alpha = 0.0
 #     lr_time = epoch
 lr_time = epoch
 
-val_mse_per_plane = {plane: [] for plane in val_planes}
-val_psnr_per_plane = {plane: [] for plane in val_planes}
-val_ssim_per_plane = {plane: [] for plane in val_planes}
-valallpsnrs = []
-valallssims = []
-valallmses = []
-allavemses = []
-allavepsnrs = []
-allavessims = []
 
 encoder_layer = 6
 decoder_outdim = 12  # 3S 6M 12L
@@ -234,6 +225,16 @@ logger.info(f'seed:{seed}')
 # logger.info(f'参数设置：batchsize={batchsize}, epoch={epoch}, use_preweight={use_preweight}, cudadevice={cudadevice}, learning_rate={learning_rate}, lr_time={lr_time}, shuffle={shuffle}, gama={gama}, seed={seed}, rcsdir = {rcsdir}, valdir = {valdir}, pretrainweight = {pretrainweight}')
 if args.fold:
     logger.info(f'数据用{args.fold} {val_planes}验证也就是{train_planes}训练, mode={mode}')
+    val_mse_per_plane = {plane: [] for plane in val_planes}
+    val_psnr_per_plane = {plane: [] for plane in val_planes}
+    val_ssim_per_plane = {plane: [] for plane in val_planes}
+    valallpsnrs = []
+    valallssims = []
+    valallmses = []
+    allavemses = []
+    allavepsnrs = []
+    allavessims = []
+    
     if mode=='10train' or 'fasttest': #10train 50fine 100fine
         train_files = [plane + '_mie_10train' for plane in train_planes]
     elif mode=='50fine':
@@ -565,7 +566,7 @@ for i in range(epoch):
         plt.clf()
         for plane, mse_values in val_mse_per_plane.items():
             plt.plot(range(0, i+1), mse_values, label=plane)
-        plt.plot(range(0, i+1),allavemses, label='all')
+        plt.plot(range(0, i+1),allavemses, label='average')
         plt.xlabel('Epoch')
         plt.ylabel('MSE')
         plt.title('Val MSE Curve')
@@ -576,7 +577,7 @@ for i in range(epoch):
         plt.clf()
         for plane, psnr_values in val_psnr_per_plane.items():
             plt.plot(range(0, i+1), psnr_values, label=plane)
-        plt.plot(range(0, i+1),allavepsnrs, label='all')
+        plt.plot(range(0, i+1),allavepsnrs, label='average')
         plt.xlabel('Epoch')
         plt.ylabel('PSNR')
         plt.title('Val PSNR Curve')
@@ -587,7 +588,7 @@ for i in range(epoch):
         plt.clf()
         for plane, ssim_values in val_ssim_per_plane.items():
             plt.plot(range(0, i+1), ssim_values, label=plane)
-        plt.plot(range(0, i+1),allavessims, label='all')
+        plt.plot(range(0, i+1),allavessims, label='average')
         plt.xlabel('Epoch')
         plt.ylabel('SSIM')
         plt.title('Val SSIM Curve')
@@ -606,24 +607,27 @@ for i in range(epoch):
         if mode == "10train":
             # if (i+1) % 20 == 0 or i == -1: 
             if (i+1) % 1 == 0 or i == -1: 
+                logger.info('每epoch val，每100 epoch draw')
                 if (i+1) % 100 == 0:
                 # if i+1==epoch:
-                    valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+                    valmse, valpsnr, valssim, valpsnrs, valssims, valmses =valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
                 else:
-                    valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+                    valmse, valpsnr, valssim, valpsnrs, valssims, valmses =valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
                 
         elif mode == "fasttest":
             if (i+1) % 1 == 0 or i == -1: 
+                logger.info('每epoch val，last epoch draw')
                 if i+1==epoch:
-                    valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+                    valmse, valpsnr, valssim, valpsnrs, valssims, valmses =valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
                 else:
-                    valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+                    valmse, valpsnr, valssim, valpsnrs, valssims, valmses =valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
         else :
             if (i+1) % 1 == 0 or i == -1:
+                logger.info('每epoch val，每2 epoch draw')
                 if (i+1) % 2 == 0 or i+1==epoch:
-                    valmse=valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+                    valmse, valpsnr, valssim, valpsnrs, valssims, valmses =valmain(draw=True, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
                 else:
-                    valmse=valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
+                    valmse, valpsnr, valssim, valpsnrs, valssims, valmses =valmain(draw=False, device=device, weight=lastsavedir, rcsdir=valdir, save_dir=save_dir, logger=logger, epoch=i, trainval=True, draw3d=False, lgrcs=lgrcs, decoder_outdim=decoder_outdim,encoder_layer=encoder_layer,paddingsize=paddingsize,valdataloader=valdataloader, attnlayer=attnlayer)
 
     # if maxpsnr < valpsnr:
     #     maxpsnr = valpsnr
