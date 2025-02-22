@@ -55,10 +55,12 @@ def plotRCS2(rcs,savedir,logger):
     pio.write_image(fig, savedir)
     # logger.info(f'画图用时：{time.time()-tic:.4f}s')
 
-def plot2DRCS(rcs, savedir,logger,cutmax):
+def plot2DRCS(rcs, savedir,logger,cutmax,cutmin=None):
     import matplotlib.pyplot as plt
     from matplotlib import cm
     from matplotlib.colors import Normalize
+    if cutmin==None:
+        cutmin=torch.min(rcs).item()
     tic = time.time()
     # print(rcs.shape)
     vmin = torch.min(rcs)
@@ -70,7 +72,7 @@ def plot2DRCS(rcs, savedir,logger,cutmax):
     plt.imshow(rcs, cmap=cmap, norm=norm, origin='lower')
     plt.colorbar(label='RCS/m²')
     if cutmax != None:# 设置图例的上下限
-        plt.clim(torch.min(rcs).item(), cutmax)
+        plt.clim(cutmin, cutmax)
     plt.xlabel("Theta")
     plt.ylabel("Phi")
     plt.savefig(savedir)
@@ -232,7 +234,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, trainval=Fals
                     # logger.info(out2Drcspngpath) #查看输出的图片叫啥在哪儿
                     plot2DRCS(rcs=single_outrcs, savedir=out2Drcspngpath, logger=logger,cutmax=None) #预测2D
                     plot2DRCS(rcs=single_outrcs, savedir=out2Drcspngpath2, logger=logger,cutmax=torch.max(single_rcs1).item()) #预测2D但是带cut
-                    plot2DRCS(rcs=single_diff, savedir=out2Drcspngpath3, logger=logger,cutmax=torch.max(single_diff).item()) #预测2D和GT的差异
+                    plot2DRCS(rcs=single_diff, savedir=out2Drcspngpath3, logger=logger,cutmax=0.05,cutmin=-0.05) #预测2D和GT的差异
                     plot2DRCS(rcs=single_rcs1, savedir=out2DGTpngpath, logger=logger,cutmax=None) #GT2D
 
                     if draw3d == True:
@@ -267,6 +269,7 @@ if __name__ == '__main__':
 
     trainval = False
     cuda = 'cuda:1'
+    # cuda = 'cpu'
     draw = True
     # draw = False
     draw3d = False
@@ -281,7 +284,7 @@ if __name__ == '__main__':
     
     from datetime import datetime
     date = datetime.today().strftime("%m%d")
-    save_dir = str(increment_path(Path(ROOT / "outputGNN" / "inference" /f'{date}_b7fd50fineval'), exist_ok=False))
+    save_dir = str(increment_path(Path(ROOT / "outputGNN" / "inference" /f'{date}_b7fd50finevalfixdiff'), exist_ok=False))
     logdir = os.path.join(save_dir,'alog.txt')
     logger = get_logger(logdir)
     epoch = -1
