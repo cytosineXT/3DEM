@@ -8,6 +8,39 @@ import numpy as np
 import trimesh
 from net.data import derive_face_edges_from_faces
 
+def savefigdata(*datas, img_path):
+    """
+    自动保存多个绘图数据到与图片同路径的 'data' 文件夹下，覆盖每次保存。
+    示例：
+    输入图片路径："/path/to/loss_curve.png"
+    生成数据文件："/path/to/data/loss_curve_1.npy"、"/path/to/data/loss_curve_2.npy" 等
+    """
+    # 获取文件名（不含扩展名）
+    base_data_name = os.path.splitext(os.path.basename(img_path))[0]  # 获取文件名部分，如 "loss_curve"
+    
+    # 获取数据保存目录并创建 'data' 文件夹
+    data_dir = os.path.join(os.path.dirname(img_path), 'data')  # 使用图片所在目录加上 'data' 文件夹
+    os.makedirs(data_dir, exist_ok=True)  # 创建 data 文件夹（如果不存在）
+
+    # 逐个保存每个数据文件
+    for idx, data in enumerate(datas):
+        # 生成数据保存路径
+        if idx == 0:
+            data_path = os.path.join(data_dir, f"{base_data_name}.npy")  # 第一个数据直接保存为 loss_curve.npy
+        else:
+            data_path = os.path.join(data_dir, f"{base_data_name}_{idx + 1}.npy")  # 后续数据保存为 loss_curve_2.npy 等
+        
+        # 统一数据格式转换
+        if isinstance(data, list):
+            data = np.array(data)
+        elif isinstance(data, torch.Tensor):
+            data = data.detach().cpu().numpy()
+
+        # 保存为.npy格式，覆盖已存在的文件
+        np.save(data_path, data)
+        print(f"Saved data to: {data_path}")
+
+
 class WrappedModel(torch.nn.Module):
     def __init__(self, model):
         super().__init__()

@@ -10,7 +10,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 matplotlib.use('agg')
 from pathlib import Path
-from net.utils_newload import increment_path, EMRCSDataset, MultiEMRCSDataset, get_logger, get_model_memory, psnr, ssim, find_matching_files, process_files, WrappedModel
+from net.utils_newload import increment_path, EMRCSDataset, MultiEMRCSDataset, get_logger, get_model_memory, psnr, ssim, find_matching_files, process_files, WrappedModel, savefigdata
 from NNval_GNN4foldbatch import  plot2DRCS, valmain, plotstatistic2#, plotRCS2
 from pytictoc import TicToc
 t = TicToc()
@@ -114,8 +114,8 @@ batchsize = args.batch
 valbatch = args.valbatch
 loss_type = args.loss
 
-datafolder = '/mnt/truenas_jiangxiaotian/allplanes/mie' #liang
-# datafolder = '/mnt/SrvDataDisk/Datasets_3DEM/allplanes/mie'
+# datafolder = '/mnt/truenas_jiangxiaotian/allplanes/mie' #liang
+datafolder = '/mnt/SrvDataDisk/Datasets_3DEM/allplanes/mie'
 
 # Fold1 = ['b871_mie_10train','bb7d_mie_10train','b827_mie_10train','b905_mie_10train','bbc6_mie_10train']
 # Fold2 = ['b80b_mie_10train','ba0f_mie_10train','b7c1_mie_10train','b9e6_mie_10train','bb7c_mie_10train']
@@ -212,6 +212,9 @@ l1savedir = os.path.join(save_dir,'l1.png')
 valmsesavedir = os.path.join(save_dir,'valmse.png')
 valpsnrsavedir = os.path.join(save_dir,'valpsnr.png')
 valssimsavedir = os.path.join(save_dir,'valssim.png')
+valmsesavedir2 = os.path.join(save_dir,'Trainvalmse.png')
+valpsnrsavedir2 = os.path.join(save_dir,'Trainvalpsnr.png')
+valssimsavedir2 = os.path.join(save_dir,'Trainvalssim.png')
 
 percentage_errorsavedir = os.path.join(save_dir,'percentage_error.png')
 allinonesavedir = os.path.join(save_dir,'allinone.png')
@@ -223,6 +226,10 @@ logger.info(args)
 logger.info(f'seed:{seed}')
 # logger.info(f'使用jxtnet_transformerEncoder.py')
 # logger.info(f'参数设置：batchsize={batchsize}, epoch={epoch}, use_preweight={use_preweight}, cudadevice={cudadevice}, learning_rate={learning_rate}, lr_time={lr_time}, shuffle={shuffle}, gama={gama}, seed={seed}, rcsdir = {rcsdir}, valdir = {valdir}, pretrainweight = {pretrainweight}')
+
+# #fold调试用
+# val_planes=['bb7c']
+
 if args.fold:
     logger.info(f'数据用{args.fold} {val_planes}验证也就是{train_planes}训练, mode={mode}')
     val_mse_per_plane = {plane: [] for plane in val_planes}
@@ -243,7 +250,13 @@ if args.fold:
         train_files = [plane + '_mie_train' for plane in train_planes]
     
     val_files = [plane + '_mie_val' for plane in val_planes]
-    logger.info(f'最终训练数据集{train_files}，验证数据集{val_files}')
+
+    # #fold调试用
+    # val_planes=['bb7c']
+    # train_files = ['bb7c_smallval']
+    # val_files = ['bb7c_smallval']
+    # datafolder='/home/ljm/workspace/datasets/'
+    # logger.info(f'最终训练数据集{train_files}，验证数据集{val_files}')
 
     dataset = MultiEMRCSDataset(train_files, datafolder)
     dataloader = DataLoader.DataLoader(dataset, batch_size=batchsize, shuffle=shuffle, num_workers=16, pin_memory=True)
@@ -448,6 +461,8 @@ for i in range(epoch):
     plt.ylabel('Loss')
     plt.title('Training Loss Curve')
     plt.savefig(lossessavedir)
+    savefigdata(losses,img_path=lossessavedir)
+    plt.close()
     
     # 绘制psnr曲线图
     plt.clf()
@@ -456,7 +471,9 @@ for i in range(epoch):
     plt.ylabel('PSNR')
     plt.title('Training PSNR Curve')
     plt.savefig(psnrsavedir)
-    
+    savefigdata(psnrs,img_path=psnrsavedir)
+    plt.close()
+
     # 绘制ssim曲线图
     plt.clf()
     plt.plot(range(0, i+1), ssims)
@@ -464,6 +481,8 @@ for i in range(epoch):
     plt.ylabel('SSIM')
     plt.title('Training SSIM Curve')
     plt.savefig(ssimsavedir)
+    savefigdata(ssims,img_path=ssimsavedir)
+    plt.close()
 
     # 绘制mse曲线图
     plt.clf()
@@ -472,6 +491,7 @@ for i in range(epoch):
     plt.ylabel('MSE')
     plt.title('Training MSE Curve')
     plt.savefig(msesavedir)
+    savefigdata(mses,img_path=msesavedir)
     plt.close()
 
     plt.clf()
@@ -480,6 +500,7 @@ for i in range(epoch):
     plt.ylabel('NMSE')
     plt.title('Training NMSE Curve')
     plt.savefig(nmsesavedir)
+    savefigdata(nmses,img_path=nmsesavedir)
     plt.close()
 
     plt.clf()
@@ -489,6 +510,8 @@ for i in range(epoch):
     plt.title('Training RMSE Curve')
     plt.savefig(rmsesavedir)
     plt.close()
+    savefigdata(rmses,img_path=rmsesavedir)
+
 
     plt.clf()
     plt.plot(range(0, i+1), l1s)
@@ -497,6 +520,7 @@ for i in range(epoch):
     plt.title('Training L1 Curve')
     plt.savefig(l1savedir)
     plt.close()
+    savefigdata(l1s,img_path=l1savedir)
 
     plt.clf()
     plt.plot(range(0, i+1), percentage_errors)
@@ -505,6 +529,7 @@ for i in range(epoch):
     plt.title('Training Percentage Error Curve')
     plt.savefig(percentage_errorsavedir)
     plt.close()
+    savefigdata(percentage_errors,img_path=percentage_errorsavedir)
 
     plt.clf() 
     plt.plot(range(0, i+1), losses, label='Loss', color='black')
@@ -558,43 +583,55 @@ for i in range(epoch):
         allavepsnrs.append(ave_psnr)
         allavessims.append(ave_ssim)
 
-        statisdir = os.path.join(save_dir,f'statisticAll_epoch{i}_PSNR{ave_psnr:.2f}dB_SSIM{ave_ssim:.4f}_MSE:{ave_mse:.4f}.png')
+        statisdir = os.path.join(save_dir,f'sta/statisticAll_epoch{i}_PSNR{ave_psnr:.2f}dB_SSIM{ave_ssim:.4f}_MSE:{ave_mse:.4f}.png')
+        if not os.path.exists(os.path.dirname(statisdir)):
+            os.makedirs(os.path.dirname(statisdir))
         plotstatistic2(valallpsnrs,valallssims,valallmses,statisdir)
+        savefigdata(valallpsnrs,img_path=os.path.join(save_dir,f'sta/valall_epoch{i}psnrs{ave_psnr:.2f}.png'))
+        savefigdata(valallssims,img_path=os.path.join(save_dir,f'sta/valall_epoch{i}ssims{ave_ssim:.4f}.png'))
+        savefigdata(valallmses,img_path=os.path.join(save_dir,f'sta/valall_epoch{i}mses{ave_mse:.4f}.png'))
         valmse = ave_mse
 
         # 绘制各飞机的mse曲线图
         plt.clf()
         for plane, mse_values in val_mse_per_plane.items():
             plt.plot(range(0, i+1), mse_values, label=plane)
-        plt.plot(range(0, i+1),allavemses, label='average')
+            savefigdata(mse_values,img_path=os.path.join(save_dir,f'{plane}_valmse.png'))
+        plt.plot(range(0, i+1),allavemses, label='ave')
         plt.xlabel('Epoch')
         plt.ylabel('MSE')
         plt.title('Val MSE Curve')
         plt.legend()
         plt.savefig(valmsesavedir)
         plt.close()
+        savefigdata(allavemses,img_path=valmsesavedir)
 
         plt.clf()
         for plane, psnr_values in val_psnr_per_plane.items():
             plt.plot(range(0, i+1), psnr_values, label=plane)
-        plt.plot(range(0, i+1),allavepsnrs, label='average')
+            savefigdata(psnr_values,img_path=os.path.join(save_dir,f'{plane}_valpsnr.png'))
+        plt.plot(range(0, i+1),allavepsnrs, label='ave')
         plt.xlabel('Epoch')
         plt.ylabel('PSNR')
         plt.title('Val PSNR Curve')
         plt.legend()
         plt.savefig(valpsnrsavedir)
         plt.close()
+        savefigdata(allavepsnrs,img_path=valpsnrsavedir)
+
 
         plt.clf()
         for plane, ssim_values in val_ssim_per_plane.items():
             plt.plot(range(0, i+1), ssim_values, label=plane)
-        plt.plot(range(0, i+1),allavessims, label='average')
+            savefigdata(ssim_values,img_path=os.path.join(save_dir,f'{plane}_valssim.png'))
+        plt.plot(range(0, i+1),allavessims, label='ave')
         plt.xlabel('Epoch')
         plt.ylabel('SSIM')
         plt.title('Val SSIM Curve')
         plt.legend()
         plt.savefig(valssimsavedir)
         plt.close()
+        savefigdata(allavessims,img_path=valssimsavedir)
 
 
         lastmse = {k: v[-1] for k, v in val_mse_per_plane.items() if v}
@@ -602,6 +639,43 @@ for i in range(epoch):
         lastssim = {k: v[-1] for k, v in val_ssim_per_plane.items() if v}
         logger.info(f'epoch{i}各飞机val指标mse:{lastmse},\npsnr:{lastpsnr},\nssim:{lastssim}')
         logger.info(f'总val指标mse:{ave_mse:.4f},psnr:{ave_psnr:.2f},ssim:{ave_ssim:.4f}')
+
+        # 绘制各飞机的mse曲线图allinone
+        plt.clf()
+        for plane, mse_values in val_mse_per_plane.items():
+            plt.plot(range(0, i+1), mse_values, label=plane)
+        plt.plot(range(0, i+1),allavemses, label='val ave')
+        plt.plot(range(0, i+1),mses, label='train ave')
+        plt.xlabel('Epoch')
+        plt.ylabel('MSE')
+        plt.title('Val MSE Curve')
+        plt.legend()
+        plt.savefig(valmsesavedir2)
+        plt.close()
+
+        plt.clf()
+        for plane, psnr_values in val_psnr_per_plane.items():
+            plt.plot(range(0, i+1), psnr_values, label=plane)
+        plt.plot(range(0, i+1),allavepsnrs, label='val ave')
+        plt.plot(range(0, i+1),psnrs, label='train ave')
+        plt.xlabel('Epoch')
+        plt.ylabel('PSNR')
+        plt.title('Val PSNR Curve')
+        plt.legend()
+        plt.savefig(valpsnrsavedir2)
+        plt.close()
+
+        plt.clf()
+        for plane, ssim_values in val_ssim_per_plane.items():
+            plt.plot(range(0, i+1), ssim_values, label=plane)
+        plt.plot(range(0, i+1),allavessims, label='val ave')
+        plt.plot(range(0, i+1),ssims, label='train ave')
+        plt.xlabel('Epoch')
+        plt.ylabel('SSIM')
+        plt.title('Val SSIM Curve')
+        plt.legend()
+        plt.savefig(valssimsavedir2)
+        plt.close()
 
     else: #普通模式
         if mode == "10train":

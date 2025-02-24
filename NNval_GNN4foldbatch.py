@@ -95,7 +95,7 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
 
     #-----------------------------------mse-------------------------------------------
     mse_threshold = 0.5
-    mse_list = [m for m in mse_list if m <= mse_threshold]
+    # mse_list = [m for m in mse_list if m <= mse_threshold]
     print(len(mse_list))
     # MSE 直方图和正态分布曲线
     plt.subplot(3, 3, 1)
