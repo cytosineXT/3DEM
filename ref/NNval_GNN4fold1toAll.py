@@ -2,7 +2,7 @@ import torch
 import time
 # from net.jxtnet_GNNn0115cond import MeshCodec
 from net.jxtnet_GNNn0118acEn import MeshCodec
-from net.utils_newload import increment_path, EMRCSDataset, get_logger, find_matching_files, process_files
+from net.utils_newload import increment_path, EMRCSDataset, get_logger, find_matching_files, process_files, MultiEMRCSDataset
 import torch.utils.data.dataloader as DataLoader
 # import trimesh
 from pathlib import Path
@@ -55,12 +55,10 @@ def plotRCS2(rcs,savedir,logger):
     pio.write_image(fig, savedir)
     # logger.info(f'画图用时：{time.time()-tic:.4f}s')
 
-def plot2DRCS(rcs, savedir,logger,cutmax,cutmin=None):
+def plot2DRCS(rcs, savedir,logger,cutmax):
     import matplotlib.pyplot as plt
     from matplotlib import cm
     from matplotlib.colors import Normalize
-    if cutmin==None:
-        cutmin=torch.min(rcs).item()
     tic = time.time()
     # print(rcs.shape)
     vmin = torch.min(rcs)
@@ -72,7 +70,7 @@ def plot2DRCS(rcs, savedir,logger,cutmax,cutmin=None):
     plt.imshow(rcs, cmap=cmap, norm=norm, origin='lower')
     plt.colorbar(label='RCS/m²')
     if cutmax != None:# 设置图例的上下限
-        plt.clim(cutmin, cutmax)
+        plt.clim(torch.min(rcs).item(), cutmax)
     plt.xlabel("Theta")
     plt.ylabel("Phi")
     plt.savefig(savedir)
@@ -234,7 +232,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, trainval=Fals
                     # logger.info(out2Drcspngpath) #查看输出的图片叫啥在哪儿
                     plot2DRCS(rcs=single_outrcs, savedir=out2Drcspngpath, logger=logger,cutmax=None) #预测2D
                     plot2DRCS(rcs=single_outrcs, savedir=out2Drcspngpath2, logger=logger,cutmax=torch.max(single_rcs1).item()) #预测2D但是带cut
-                    plot2DRCS(rcs=single_diff, savedir=out2Drcspngpath3, logger=logger,cutmax=0.05,cutmin=-0.05) #预测2D和GT的差异
+                    plot2DRCS(rcs=single_diff, savedir=out2Drcspngpath3, logger=logger,cutmax=torch.max(single_diff).item()) #预测2D和GT的差异
                     plot2DRCS(rcs=single_rcs1, savedir=out2DGTpngpath, logger=logger,cutmax=None) #GT2D
 
                     if draw3d == True:
@@ -271,28 +269,118 @@ if __name__ == '__main__':
     cuda = 'cuda:1'
     # cuda = 'cpu'
     draw = True
-    # draw = False
+    draw = False
     draw3d = False
     lgrcs = False
     device = torch.device(cuda if torch.cuda.is_available() else "cpu")
-    batchsize = 40 #纯GNN60 带Transformer40
+    valbatch = 20 #纯GNN60 带Transformer40
+    epoch = -1
+    attnlayer = 1
+    val_mse_per_plane = {}
+    val_psnr_per_plane = {}
+    val_ssim_per_plane = {}
+    from datetime import datetime
+    date = datetime.today().strftime("%m%d")
+    save_dir = str(increment_path(Path(ROOT / "outputGNN" / "inference" /f'{date}_b7fd50finevalall'), exist_ok=False))
+    logdir = os.path.join(save_dir,'alog.txt')
+    logger = get_logger(logdir)
+    valmsesavedir = os.path.join(save_dir,'valmse.png')
+    valpsnrsavedir = os.path.join(save_dir,'valpsnr.png')
+    valssimsavedir = os.path.join(save_dir,'valssim.png')
 
+    datafolder = r'/mnt/truenas_jiangxiaotian/allplanes/mie'
+    # planes = ['b871','bb7d','b827','b905','bbc6','b80b','ba0f','b7c1','b9e6','bb7c','b943','b97b','b812','bc2c','b974','bb26','b7fd','baa9','b979','b8ed']
+    planes = ['b871','bb7d']
+    trainplanes = ['b7fd']
+    valplanes = None
     # weight = r'/home/jiangxiaotian/workspace/3DEM/outputGNN/train2/0211_sd7_finetuneL1_mul50fold3_GNNTr_e200Tr0_cuda:1_break60/last.pt'
     # weight = r'/home/jiangxiaotian/workspace/3DEM/outputGNN/b7fd_pretrain_m0378.pt'
     weight = r'/home/jiangxiaotian/workspace/3DEM/outputGNN/b7fd_50fine_m0090.pt'
-    valdir = r'/mnt/truenas_jiangxiaotian/allplanes/mie/b7fd_mie_val'
+
+    # valdir = r'/mnt/truenas_jiangxiaotian/allplanes/mie/b7fd_mie_val'
+    val_files = [plane + '_mie_val' for plane in planes]
+    val_dataloaders = {} #现在val是按飞机的，按飞机创建了datasets实例化类用飞机名作为键来存对应飞机的dataloader实例化类作为值
+    for valfile1 in val_files:
+        valdataset = MultiEMRCSDataset([valfile1], datafolder)
+        plane1 = valfile1[:4]
+        val_dataloaders[plane1] = DataLoader.DataLoader(valdataset, batch_size=valbatch, shuffle=False, num_workers=16, pin_memory=True)
+
+    for plane, valdataloader in val_dataloaders.items():
+        logger.info(f"开始对飞机{plane}进行验证")
+        valplanedir=os.path.join(save_dir,plane)
+        if not os.path.exists(valplanedir):
+            os.makedirs(valplanedir)
+        logger.info(f'正在用{weight}验证推理{plane}及画图')
+        valmse, valpsnr, valssim, valpsnrs, valssims, valmses =valmain(draw, device, weight, valfile1, valplanedir, logger, epoch, trainval, draw3d, attnlayer=attnlayer, valdataloader=valdataloader, batchsize=valbatch)
+        # val_mse_per_plane[plane]=valmse
+        # val_psnr_per_plane[plane]=valpsnr
+        # val_ssim_per_plane[plane]=valssim
+        val_mse_per_plane[plane]=valmse.item()
+        val_psnr_per_plane[plane]=valpsnr.item()
+        val_ssim_per_plane[plane]=valssim.item()
+    allavemse = np.mean(list(val_mse_per_plane.values()))
+    allavepsnr = np.mean(list(val_psnr_per_plane.values()))
+    allavessim = np.mean(list(val_ssim_per_plane.values()))
     
-    from datetime import datetime
-    date = datetime.today().strftime("%m%d")
-    save_dir = str(increment_path(Path(ROOT / "outputGNN" / "inference" /f'{date}_b7fd50finevalfixdiff'), exist_ok=False))
-    logdir = os.path.join(save_dir,'alog.txt')
-    logger = get_logger(logdir)
-    epoch = -1
-    attnlayer = 1
-    
-    valfilelist = os.listdir(valdir)
-    valdataset = EMRCSDataset(valfilelist, valdir) #这里进的是init
-    valdataloader = DataLoader.DataLoader(valdataset, batch_size=batchsize, shuffle=False, num_workers=16, pin_memory=True)
-    if trainval == False:
-        logger.info(f'正在用{weight}验证推理{valdir}及画图')
-    valmain(draw, device, weight, valdir, save_dir, logger, epoch, trainval, draw3d, attnlayer=attnlayer, valdataloader=valdataloader, batchsize=batchsize)
+    # 绘制 MSE 的柱状图（从小到大排列）
+    plt.clf()
+    sorted_mse = sorted(val_mse_per_plane.items(), key=lambda x: x[1])  # 从小到大排序
+    planes_mse, mse_values = zip(*sorted_mse)  # 解压排序后的元组
+
+    bars = plt.bar(planes_mse, mse_values, label='MSE per Plane')
+    plt.axhline(allavemse, color='r', linestyle='--', label=f'Average ({allavemse:.4f})')
+    plt.xlabel('Plane')
+    plt.ylabel('MSE')
+    plt.title('Validation MSE per Plane')
+    plt.legend()
+    plt.xticks(rotation=45)  # 如果飞机名称较长，可以旋转 X 轴标签
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width() / 2, height, f'{height:.4f}', ha='center', va='bottom',rotation=45)
+    plt.ylim(0, max(mse_values) * 1.2)  # 增加 y 轴的上限，使文本有足够空间
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.9)
+    plt.savefig(valmsesavedir)
+    plt.close()
+
+    # 绘制 PSNR 的柱状图（从大到小排列）
+    plt.clf()
+    sorted_psnr = sorted(val_psnr_per_plane.items(), key=lambda x: x[1], reverse=True)  # 从大到小排序
+    planes_psnr, psnr_values = zip(*sorted_psnr)  # 解压排序后的元组
+
+    bars = plt.bar(planes_psnr, psnr_values, label='PSNR per Plane')
+    plt.axhline(allavepsnr, color='r', linestyle='--', label=f'Average ({allavepsnr:.2f})')
+    plt.xlabel('Plane')
+    plt.ylabel('PSNR')
+    plt.title('Validation PSNR per Plane')
+    plt.legend()
+    plt.xticks(rotation=45)
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width() / 2, height, f'{height:.2f}', ha='center', va='bottom',rotation=45)
+    plt.ylim(0, max(psnr_values) * 1.2)  # 增加 y 轴的上限，使文本有足够空间
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.9)
+    plt.savefig(valpsnrsavedir)
+    plt.close()
+
+    # 绘制 SSIM 的柱状图（从大到小排列）
+    plt.clf()
+    sorted_ssim = sorted(val_ssim_per_plane.items(), key=lambda x: x[1], reverse=True)  # 从大到小排序
+    planes_ssim, ssim_values = zip(*sorted_ssim)  # 解压排序后的元组
+
+    bars = plt.bar(planes_ssim, ssim_values, label='SSIM per Plane')
+    plt.axhline(allavessim, color='r', linestyle='--', label=f'Average ({allavessim:.4f})')
+    plt.xlabel('Plane')
+    plt.ylabel('SSIM')
+    plt.title('Validation SSIM per Plane')
+    plt.legend()
+    plt.xticks(rotation=45)
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width() / 2, height, f'{height:.4f}', ha='center', va='bottom',rotation=45)
+    plt.ylim(0, max(ssim_values) * 1.2)  # 增加 y 轴的上限，使文本有足够空间
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.9)
+    plt.savefig(valssimsavedir)
+    plt.close()

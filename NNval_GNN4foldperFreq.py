@@ -21,6 +21,70 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
+def plot_scatter_separate(freq_list, mse_list, psnr_list, ssim_list, savedir, logger):
+    plt.figure(figsize=(10, 6))
+    plt.scatter(freq_list, mse_list, alpha=0.5)
+    plt.xlabel('Frequency (GHz)', fontsize=12)
+    plt.ylabel('MSE', fontsize=12)
+    plt.title('MSE vs Frequency', fontsize=14)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.xlim(0.1, 1.0)  # 强制设置频率范围
+    plt.savefig(os.path.join(savedir, f'mse_vs_freq.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+
+    plt.figure(figsize=(10, 6))
+    plt.scatter(freq_list, psnr_list, alpha=0.5)
+    plt.xlabel('Frequency (GHz)', fontsize=12)
+    plt.ylabel('PSNR (dB)', fontsize=12)
+    plt.title('PSNR vs Frequency', fontsize=14)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.xlim(0.1, 1.0)
+    plt.savefig(os.path.join(savedir, f'psnr_vs_freq.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+
+    plt.figure(figsize=(10, 6))
+    plt.scatter(freq_list, ssim_list, alpha=0.5)
+    plt.xlabel('Frequency (GHz)', fontsize=12)
+    plt.ylabel('SSIM', fontsize=12)
+    plt.title('SSIM vs Frequency', fontsize=14)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.xlim(0.1, 1.0)
+    plt.savefig(os.path.join(savedir, f'ssim_vs_freq.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    logger.info(f'散点图已保存至 {savedir}')
+
+# def plot_scatter(freq_list, mse_list, psnr_list, ssim_list, savedir, logger):
+#     plt.figure(figsize=(18, 6))
+    
+#     # MSE vs Freq
+#     plt.subplot(1, 3, 1)
+#     plt.scatter(freq_list, mse_list, alpha=0.6)
+#     plt.xlabel('Frequency (GHz)')
+#     plt.ylabel('MSE')
+#     plt.title('MSE vs Frequency')
+#     plt.grid(True)
+    
+#     # PSNR vs Freq
+#     plt.subplot(1, 3, 2)
+#     plt.scatter(freq_list, psnr_list, alpha=0.6)
+#     plt.xlabel('Frequency (GHz)')
+#     plt.ylabel('PSNR (dB)')
+#     plt.title('PSNR vs Frequency')
+#     plt.grid(True)
+    
+#     # SSIM vs Freq
+#     plt.subplot(1, 3, 3)
+#     plt.scatter(freq_list, ssim_list, alpha=0.6)
+#     plt.xlabel('Frequency (GHz)')
+#     plt.ylabel('SSIM')
+#     plt.title('SSIM vs Frequency')
+#     plt.grid(True)
+    
+#     plt.tight_layout()
+#     plt.savefig(savedir)
+#     plt.close()
+#     logger.info(f'保存散点图到 {savedir}')
+
 def plotRCS2(rcs,savedir,logger):
     import numpy as np
     import plotly.graph_objects as go
@@ -55,12 +119,10 @@ def plotRCS2(rcs,savedir,logger):
     pio.write_image(fig, savedir)
     # logger.info(f'画图用时：{time.time()-tic:.4f}s')
 
-def plot2DRCS(rcs, savedir,logger,cutmax,cutmin=None):
+def plot2DRCS(rcs, savedir,logger,cutmax):
     import matplotlib.pyplot as plt
     from matplotlib import cm
     from matplotlib.colors import Normalize
-    if cutmin==None:
-        cutmin=torch.min(rcs).item()
     tic = time.time()
     # print(rcs.shape)
     vmin = torch.min(rcs)
@@ -72,7 +134,7 @@ def plot2DRCS(rcs, savedir,logger,cutmax,cutmin=None):
     plt.imshow(rcs, cmap=cmap, norm=norm, origin='lower')
     plt.colorbar(label='RCS/m²')
     if cutmax != None:# 设置图例的上下限
-        plt.clim(cutmin, cutmax)
+        plt.clim(torch.min(rcs).item(), cutmax)
     plt.xlabel("Theta")
     plt.ylabel("Phi")
     plt.savefig(savedir)
@@ -164,6 +226,10 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, trainval=Fals
     tic = time.time()
     logger.info(f'val batchsize={batchsize}')
     # pngsavedir = os.path.join(save_dir,'0508_b827_theta90phi330freq0.9_4w_sm.png')
+    freq_list = []
+    mse_samples = []
+    psnr_samples = []
+    ssim_samples = []
 
     in_ems = []
     rcss = []
@@ -205,6 +271,13 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, trainval=Fals
                 device = device,
             )
             inftime = time.time()-start_time0
+            for i in range(len(psnrlist)):
+                freq = float(in_em1[3][i])  # 提取频率值
+                freq_list.append(freq)
+                mse_samples.append(mselist[i].item())
+                psnr_samples.append(psnrlist[i].item())
+                ssim_samples.append(ssimlist[i].item())
+                logger.info(f'f={freq},mse={mselist[i].item()},psnr={psnrlist[i].item()}')
 
             if trainval == False:
                 logger.info(f'单次推理用时：{time.time()-start_time0:.4f}s，单点推理用时：{(time.time()-start_time0)/batchsize:.4f}s')
@@ -234,7 +307,7 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, trainval=Fals
                     # logger.info(out2Drcspngpath) #查看输出的图片叫啥在哪儿
                     plot2DRCS(rcs=single_outrcs, savedir=out2Drcspngpath, logger=logger,cutmax=None) #预测2D
                     plot2DRCS(rcs=single_outrcs, savedir=out2Drcspngpath2, logger=logger,cutmax=torch.max(single_rcs1).item()) #预测2D但是带cut
-                    plot2DRCS(rcs=single_diff, savedir=out2Drcspngpath3, logger=logger,cutmax=0.05,cutmin=-0.05) #预测2D和GT的差异
+                    plot2DRCS(rcs=single_diff, savedir=out2Drcspngpath3, logger=logger,cutmax=torch.max(single_diff).item()) #预测2D和GT的差异
                     plot2DRCS(rcs=single_rcs1, savedir=out2DGTpngpath, logger=logger,cutmax=None) #GT2D
 
                     if draw3d == True:
@@ -262,20 +335,24 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, trainval=Fals
 
         statisdir = os.path.join(save_dir,f'statistic_epoch{epoch}_PSNR{ave_psnr:.2f}dB_SSIM{ave_ssim:.4f}_MSE:{ave_mse:.4f}_Loss{ave_loss:.4f}.png')
         plotstatistic2(psnrs,ssims,mses,statisdir)
+        # scatter_dir = os.path.join(save_dir, f'scatter_epoch{epoch}.png')
+        plot_scatter_separate(freq_list, mse_samples, psnr_samples, ssim_samples, save_dir, logger)
+
     return ave_mse, ave_psnr, ave_ssim, psnrs, ssims, mses  #ave_psnr, 
 
 
 if __name__ == '__main__':
 
     trainval = False
-    cuda = 'cuda:1'
-    # cuda = 'cpu'
+    # cuda = 'cuda:1'
+    cuda = 'cpu'
     draw = True
-    # draw = False
+    draw = False
     draw3d = False
     lgrcs = False
     device = torch.device(cuda if torch.cuda.is_available() else "cpu")
     batchsize = 40 #纯GNN60 带Transformer40
+    batchsize = 60 #纯GNN60 带Transformer40
 
     # weight = r'/home/jiangxiaotian/workspace/3DEM/outputGNN/train2/0211_sd7_finetuneL1_mul50fold3_GNNTr_e200Tr0_cuda:1_break60/last.pt'
     # weight = r'/home/jiangxiaotian/workspace/3DEM/outputGNN/b7fd_pretrain_m0378.pt'
@@ -284,7 +361,7 @@ if __name__ == '__main__':
     
     from datetime import datetime
     date = datetime.today().strftime("%m%d")
-    save_dir = str(increment_path(Path(ROOT / "outputGNN" / "inference" /f'{date}_b7fd50finevalfixdiff'), exist_ok=False))
+    save_dir = str(increment_path(Path(ROOT / "outputGNN" / "inference" /f'{date}_b7fd50finevaltofreq'), exist_ok=False))
     logdir = os.path.join(save_dir,'alog.txt')
     logger = get_logger(logdir)
     epoch = -1
