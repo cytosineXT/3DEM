@@ -2,7 +2,7 @@ import torch
 import time
 # from net.jxtnet_GNNn0115cond import MeshCodec
 from net.jxtnet_GNNn0118acEn import MeshCodec
-from net.utils_newload import increment_path, EMRCSDataset, get_logger, find_matching_files, process_files
+from net.utils_newload import increment_path, EMRCSDataset, get_logger, find_matching_files, process_files,savefigdata
 import torch.utils.data.dataloader as DataLoader
 # import trimesh
 from pathlib import Path
@@ -260,8 +260,13 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, trainval=Fals
         logger.info(f'val数据集地址:{rcsdir}, 总耗时:{time.strftime("%H:%M:%S", time.gmtime(time.time()-tic))}')
         logger.info(f'↑----val loss:{ave_loss:.4f},psnr:{ave_psnr:.2f},ssim:{ave_ssim:.4f},mse:{ave_mse:.4f},inftime:{ave_inftime:.4f}s----↑')
 
-        statisdir = os.path.join(save_dir,f'statistic_epoch{epoch}_PSNR{ave_psnr:.2f}dB_SSIM{ave_ssim:.4f}_MSE:{ave_mse:.4f}_Loss{ave_loss:.4f}.png')
+        statisdir = os.path.join(save_dir,f'sta/statistic_epoch{epoch}_PSNR{ave_psnr:.2f}dB_SSIM{ave_ssim:.4f}_MSE:{ave_mse:.4f}_Loss{ave_loss:.4f}.png')
+        if not os.path.exists(os.path.dirname(statisdir)):
+            os.makedirs(os.path.dirname(statisdir))
         plotstatistic2(psnrs,ssims,mses,statisdir)
+        savefigdata(psnrs,img_path=os.path.join(save_dir,f'sta/valall_epoch{epoch}psnrs{ave_psnr:.2f}.png'))
+        savefigdata(ssims,img_path=os.path.join(save_dir,f'sta/valall_epoch{epoch}ssims{ave_ssim:.4f}.png'))
+        savefigdata(mses,img_path=os.path.join(save_dir,f'sta/valall_epoch{epoch}mses{ave_mse:.4f}.png'))
     return ave_mse, ave_psnr, ave_ssim, psnrs, ssims, mses  #ave_psnr, 
 
 

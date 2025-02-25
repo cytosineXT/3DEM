@@ -78,8 +78,8 @@ def parse_args():
     parser.add_argument('--cuda', type=str, default='cuda:0', help='CUDA device to use')
 
     # 新增参数
-    parser.add_argument('--fold', type=str, default=None, help='Fold to use for validation (e.g., fold4)')
-    # parser.add_argument('--fold', type=str, default='fold3', help='Fold to use for validation (e.g., fold4)')
+    # parser.add_argument('--fold', type=str, default=None, help='Fold to use for validation (e.g., fold4)')
+    parser.add_argument('--fold', type=str, default='fold3', help='Fold to use for validation (e.g., fold4)')
     return parser.parse_args()
 
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
@@ -586,7 +586,7 @@ for i in range(epoch):
         statisdir = os.path.join(save_dir,f'sta/statisticAll_epoch{i}_PSNR{ave_psnr:.2f}dB_SSIM{ave_ssim:.4f}_MSE:{ave_mse:.4f}.png')
         if not os.path.exists(os.path.dirname(statisdir)):
             os.makedirs(os.path.dirname(statisdir))
-        plotstatistic2(valallpsnrs,valallssims,valallmses,statisdir)
+        plotstatistic2(valallpsnrs,valallssims,valallmses,statisdir) #fold模式时多飞机的总统计图
         savefigdata(valallpsnrs,img_path=os.path.join(save_dir,f'sta/valall_epoch{i}psnrs{ave_psnr:.2f}.png'))
         savefigdata(valallssims,img_path=os.path.join(save_dir,f'sta/valall_epoch{i}ssims{ave_ssim:.4f}.png'))
         savefigdata(valallmses,img_path=os.path.join(save_dir,f'sta/valall_epoch{i}mses{ave_mse:.4f}.png'))
@@ -597,7 +597,7 @@ for i in range(epoch):
         for plane, mse_values in val_mse_per_plane.items():
             plt.plot(range(0, i+1), mse_values, label=plane)
             savefigdata(mse_values,img_path=os.path.join(save_dir,f'{plane}_valmse.png'))
-        plt.plot(range(0, i+1),allavemses, label='ave')
+        plt.plot(range(0, i+1),allavemses, label='ave', linestyle='--')
         plt.xlabel('Epoch')
         plt.ylabel('MSE')
         plt.title('Val MSE Curve')
@@ -610,7 +610,7 @@ for i in range(epoch):
         for plane, psnr_values in val_psnr_per_plane.items():
             plt.plot(range(0, i+1), psnr_values, label=plane)
             savefigdata(psnr_values,img_path=os.path.join(save_dir,f'{plane}_valpsnr.png'))
-        plt.plot(range(0, i+1),allavepsnrs, label='ave')
+        plt.plot(range(0, i+1),allavepsnrs, label='ave', linestyle='--')
         plt.xlabel('Epoch')
         plt.ylabel('PSNR')
         plt.title('Val PSNR Curve')
@@ -624,7 +624,7 @@ for i in range(epoch):
         for plane, ssim_values in val_ssim_per_plane.items():
             plt.plot(range(0, i+1), ssim_values, label=plane)
             savefigdata(ssim_values,img_path=os.path.join(save_dir,f'{plane}_valssim.png'))
-        plt.plot(range(0, i+1),allavessims, label='ave')
+        plt.plot(range(0, i+1),allavessims, label='ave', linestyle='--')
         plt.xlabel('Epoch')
         plt.ylabel('SSIM')
         plt.title('Val SSIM Curve')
@@ -644,8 +644,8 @@ for i in range(epoch):
         plt.clf()
         for plane, mse_values in val_mse_per_plane.items():
             plt.plot(range(0, i+1), mse_values, label=plane)
-        plt.plot(range(0, i+1),allavemses, label='val ave')
-        plt.plot(range(0, i+1),mses, label='train ave')
+        plt.plot(range(0, i+1),allavemses, label='val ave', linestyle='--')
+        plt.plot(range(0, i+1),mses, label='train ave', linestyle='--')
         plt.xlabel('Epoch')
         plt.ylabel('MSE')
         plt.title('Val MSE Curve')
@@ -656,8 +656,8 @@ for i in range(epoch):
         plt.clf()
         for plane, psnr_values in val_psnr_per_plane.items():
             plt.plot(range(0, i+1), psnr_values, label=plane)
-        plt.plot(range(0, i+1),allavepsnrs, label='val ave')
-        plt.plot(range(0, i+1),psnrs, label='train ave')
+        plt.plot(range(0, i+1),allavepsnrs, label='val ave', linestyle='--')
+        plt.plot(range(0, i+1),psnrs, label='train ave', linestyle='--')
         plt.xlabel('Epoch')
         plt.ylabel('PSNR')
         plt.title('Val PSNR Curve')
@@ -668,8 +668,8 @@ for i in range(epoch):
         plt.clf()
         for plane, ssim_values in val_ssim_per_plane.items():
             plt.plot(range(0, i+1), ssim_values, label=plane)
-        plt.plot(range(0, i+1),allavessims, label='val ave')
-        plt.plot(range(0, i+1),ssims, label='train ave')
+        plt.plot(range(0, i+1),allavessims, label='val ave', linestyle='--')
+        plt.plot(range(0, i+1),ssims, label='train ave', linestyle='--')
         plt.xlabel('Epoch')
         plt.ylabel('SSIM')
         plt.title('Val SSIM Curve')
