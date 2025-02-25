@@ -2,14 +2,14 @@ import torch
 import time
 # from net.jxtnet_GNNn0115cond import MeshCodec
 from net.jxtnet_GNNn0118acEn import MeshCodec
-from net.utils_newload import increment_path, EMRCSDataset, get_logger, find_matching_files, process_files, MultiEMRCSDataset
+from net.utils_newload import increment_path, EMRCSDataset, get_logger, find_matching_files, process_files, MultiEMRCSDataset,savefigdata
 import torch.utils.data.dataloader as DataLoader
 # import trimesh
 from pathlib import Path
 import sys
 import os
 from tqdm import tqdm
-import re
+# import re
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import norm
@@ -22,6 +22,121 @@ ROOT = FILE.parents[0]  # YOLOv5 root directory
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
+
+def polynomial_fit(x, y, degree=3, alpha=0.05):
+    """执行多项式拟合并返回拟合曲线和置信区间"""
+    # 多项式拟合
+    coeffs = np.polyfit(x, y, degree)
+    poly = np.poly1d(coeffs)
+    
+    # 生成拟合曲线
+    x_fit = np.linspace(min(x), max(x), 200)
+    y_fit = poly(x_fit)
+    
+    # 计算残差
+    residuals = y - poly(x)
+    
+    # 计算分位数
+    lower = np.percentile(residuals, 5)
+    upper = np.percentile(residuals, 95)
+    
+    return x_fit, y_fit, y_fit + lower, y_fit + upper
+
+def plot_metric(ax, x, y, title, ylabel,  color_fit='#D55E00'): #color_point='#4C72B0',
+    """通用绘图函数"""
+    # 绘制散点
+    ax.scatter(x, y, alpha=0.6, edgecolor='white', linewidth=0.5) # color=color_point,
+    
+    # 执行多项式拟合
+    x_fit, y_fit, y_lower, y_upper = polynomial_fit(x, y)
+    
+    # 绘制拟合曲线
+    ax.plot(x_fit, y_fit, color=color_fit, lw=2.5, label='Cubic Fit')
+    
+    # 绘制置信区间
+    ax.fill_between(x_fit, y_lower, y_upper, color='#999999', alpha=0.2, 
+                    label='5%-95% Confidence Band')
+    
+    ax.set_title(title)
+    ax.set_xlabel('Frequency (GHz)')
+    ax.set_ylabel(ylabel)
+    ax.grid(True, alpha=0.3)
+    ax.set_xlim(0.1, 1.0)
+    ax.legend()
+
+def plot_scatter_separate(freq_list, mse_list, psnr_list, ssim_list, savedir):
+    # 创建保存目录
+    if not os.path.exists(savedir):
+        os.makedirs(savedir)
+    
+    # 设置全局样式
+    # plt.style.use('seaborn')
+    plt.rcParams.update({'font.size': 12, 'font.family': 'DejaVu Sans'})
+    
+    # 创建画布
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    
+    # # 绘制MSE
+    # axes[0].scatter(freq_list, mse_list, alpha=0.6, edgecolor='white', linewidth=0.5)#color='#4C72B0', 
+    # upper_5_mse = np.percentile(mse_list, 95)
+    # axes[0].axhline(upper_5_mse, color='#CC0000', linestyle='--', 
+    #                linewidth=2, label=f'95% Upper Bound\n({upper_5_mse:.4f})')
+    # axes[0].set_title('MSE vs Frequency')
+    # axes[0].set_xlabel('Frequency (GHz)')
+    # axes[0].set_ylabel('MSE')
+    # axes[0].grid(True, alpha=0.3)
+    # axes[0].set_xlim(0.1, 1.0)
+    # axes[0].legend()
+
+    # 绘制PSNR
+    plot_metric(axes[0], freq_list, mse_list, 
+               'MSE vs Frequency', 'MSE')
+    # 绘制PSNR
+    plot_metric(axes[1], freq_list, psnr_list, 
+               'PSNR vs Frequency', 'PSNR (dB)')
+    
+    # 绘制SSIM
+    plot_metric(axes[2], freq_list, ssim_list, 
+               'SSIM vs Frequency', 'SSIM')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(savedir, 'combined_metrics.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print(f'可视化结果已保存至: {os.path.abspath(savedir)}')
+
+
+# def plot_scatter_separate(freq_list, mse_list, psnr_list, ssim_list, savedir, logger):
+#     plt.figure(figsize=(10, 6))
+#     plt.scatter(freq_list, mse_list, alpha=0.5)
+#     plt.xlabel('Frequency (GHz)', fontsize=12)
+#     plt.ylabel('MSE', fontsize=12)
+#     plt.title('MSE vs Frequency', fontsize=14)
+#     plt.grid(True, linestyle='--', alpha=0.7)
+#     plt.xlim(0.1, 1.0)  # 强制设置频率范围
+#     plt.savefig(os.path.join(savedir, f'mse_vs_freq.png'), dpi=300, bbox_inches='tight')
+#     plt.close()
+
+#     plt.figure(figsize=(10, 6))
+#     plt.scatter(freq_list, psnr_list, alpha=0.5)
+#     plt.xlabel('Frequency (GHz)', fontsize=12)
+#     plt.ylabel('PSNR (dB)', fontsize=12)
+#     plt.title('PSNR vs Frequency', fontsize=14)
+#     plt.grid(True, linestyle='--', alpha=0.7)
+#     plt.xlim(0.1, 1.0)
+#     plt.savefig(os.path.join(savedir, f'psnr_vs_freq.png'), dpi=300, bbox_inches='tight')
+#     plt.close()
+
+#     plt.figure(figsize=(10, 6))
+#     plt.scatter(freq_list, ssim_list, alpha=0.5)
+#     plt.xlabel('Frequency (GHz)', fontsize=12)
+#     plt.ylabel('SSIM', fontsize=12)
+#     plt.title('SSIM vs Frequency', fontsize=14)
+#     plt.grid(True, linestyle='--', alpha=0.7)
+#     plt.xlim(0.1, 1.0)
+#     plt.savefig(os.path.join(savedir, f'ssim_vs_freq.png'), dpi=300, bbox_inches='tight')
+#     plt.close()
+#     logger.info(f'散点图已保存至 {savedir}')
 
 def plotRCS2(rcs,savedir,logger):
     import numpy as np
@@ -164,6 +279,10 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, trainval=Fals
     tic = time.time()
     logger.info(f'val batchsize={batchsize}')
     # pngsavedir = os.path.join(save_dir,'0508_b827_theta90phi330freq0.9_4w_sm.png')
+    freq_list = []
+    mse_samples = []
+    psnr_samples = []
+    ssim_samples = []
 
     in_ems = []
     rcss = []
@@ -205,6 +324,13 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, trainval=Fals
                 device = device,
             )
             inftime = time.time()-start_time0
+            for i in range(len(psnrlist)):
+                freq = float(in_em0[3][i])  # 提取频率值
+                freq_list.append(freq)
+                mse_samples.append(mselist[i].item())
+                psnr_samples.append(psnrlist[i].item())
+                ssim_samples.append(ssimlist[i].item())
+                logger.info(f'f={freq:.3f},mse={mselist[i].item():.4f},psnr={psnrlist[i].item():.2f}dB')
 
             if trainval == False:
                 logger.info(f'单次推理用时：{time.time()-start_time0:.4f}s，单点推理用时：{(time.time()-start_time0)/batchsize:.4f}s')
@@ -262,6 +388,15 @@ def valmain(draw, device, weight, rcsdir, save_dir, logger, epoch, trainval=Fals
 
         statisdir = os.path.join(save_dir,f'statistic_epoch{epoch}_PSNR{ave_psnr:.2f}dB_SSIM{ave_ssim:.4f}_MSE:{ave_mse:.4f}_Loss{ave_loss:.4f}.png')
         plotstatistic2(psnrs,ssims,mses,statisdir)
+        savefigdata(psnrs,img_path=os.path.join(save_dir,f'sta/valall_epoch{epoch}psnrs{ave_psnr:.2f}.png'))
+        savefigdata(ssims,img_path=os.path.join(save_dir,f'sta/valall_epoch{epoch}ssims{ave_ssim:.4f}.png'))
+        savefigdata(mses,img_path=os.path.join(save_dir,f'sta/valall_epoch{epoch}mses{ave_mse:.4f}.png'))
+
+        plot_scatter_separate(freq_list, mse_samples, psnr_samples, ssim_samples, save_dir)
+        savefigdata(psnr_samples,img_path=os.path.join(save_dir,f'scatter_psnr_vs_freq.png'))
+        savefigdata(ssim_samples,img_path=os.path.join(save_dir,f'scatter_ssim_vs_freq.png'))
+        savefigdata(mse_samples,img_path=os.path.join(save_dir,f'scatter_mse_vs_freq.png'))
+        savefigdata(freq_list,img_path=os.path.join(save_dir,f'scatter_vs_freq.png'))
     return ave_mse, ave_psnr, ave_ssim, psnrs, ssims, mses  #ave_psnr, 
 
 
@@ -269,8 +404,8 @@ if __name__ == '__main__':
     starttime = time.time()
     # 初始化参数
     trainval = False
-    cuda = 'cuda:1'
-    cuda = 'cpu'
+    cuda = 'cuda:0'
+    # cuda = 'cpu'
     draw = True
     draw = False
     draw3d = False
@@ -279,35 +414,37 @@ if __name__ == '__main__':
     # valbatch = 60
     valbatch = 20
     epoch = -1
-    attnlayer = 0
-    # attnlayer = 1
+    # attnlayer = 0
+    attnlayer = 1
     val_mse_per_plane = {}
     val_psnr_per_plane = {}
     val_ssim_per_plane = {}
     from datetime import datetime
     date = datetime.today().strftime("%m%d")
     # save_dir = str(increment_path(Path(ROOT / "outputGNN" / "inference" / f'{date}_testlegend'), exist_ok=False))
-    save_dir = str(increment_path(Path(ROOT / "outputGNN" / "inference" / f'{date}_fold2train10valall'), exist_ok=False))
-    # save_dir = str(increment_path(Path(ROOT / "outputGNN" / "inference" / f'{date}_b7fdfine50valall'), exist_ok=False))
+    # save_dir = str(increment_path(Path(ROOT / "outputGNN" / "inference" / f'{date}_fold2train10valall'), exist_ok=False))
+    save_dir = str(increment_path(Path(ROOT / "outputGNN" / "inference" / (f'{date}_b943fine50'+'_valall_perfreq')), exist_ok=False))
     logdir = os.path.join(save_dir, 'alog.txt')
     logger = get_logger(logdir)
-    valmsesavedir = os.path.join(save_dir, 'valmse.png')
-    valpsnrsavedir = os.path.join(save_dir, 'valpsnr.png')
-    valssimsavedir = os.path.join(save_dir, 'valssim.png')
+    valmsesavedir = os.path.join(save_dir, 'valmsecolume.png')
+    valpsnrsavedir = os.path.join(save_dir, 'valpsnrcolume.png')
+    valssimsavedir = os.path.join(save_dir, 'valssimcolume.png')
 
-    datafolder = r'/mnt/truenas_jiangxiaotian/allplanes/mie'
+    datafolder = r'/mnt/truenas_jiangxiaotian/allplanes/mie' #liang
+    # datafolder = '/mnt/SrvDataDisk/Datasets_3DEM/allplanes/mie'
+
     # Fold1 = ['b871','bb7d','b827','b905','bbc6']
     # Fold2 = ['b80b','ba0f','b7c1','b9e6','bb7c']
     # Fold3 = ['b943','b97b','b812','bc2c','b974']
     # Fold4 = ['bb26','b7fd','baa9','b979','b8ed']
     planes = ['b871', 'bb7d', 'b827', 'b905', 'bbc6', 'b80b', 'ba0f', 'b7c1', 'b9e6', 'bb7c', 'b943', 'b97b', 'b812', 'bc2c', 'b974', 'bb26', 'b7fd', 'baa9', 'b979', 'b8ed']
-    # planes = ['b7fd', 'b8ed']
+    # planes = ['b943','b7fd']
 
     # 根据指定的 trainplanes 和 valplanes 来进行划分
-    # trainplanes = ['b7fd']
-    trainplanes = None
-    # valplanes = None
-    valplanes = ['b80b','ba0f','b7c1','b9e6','bb7c']
+    trainplanes = ['b943']
+    # trainplanes = None
+    valplanes = None
+    # valplanes = ['b80b','ba0f','b7c1','b9e6','bb7c']
 
     # 检查并分配飞机
     if valplanes is None:
@@ -316,7 +453,8 @@ if __name__ == '__main__':
         trainplanes = list(set(planes) - set(valplanes))  # 剩余飞机分配给trainplanes
 
     # weight = r'/home/jiangxiaotian/workspace/3DEM/outputGNN/b7fd_50fine_m0090.pt'
-    weight = r'/home/jiangxiaotian/workspace/3DEM/outputGNN/fold2val_10train_50e_fantastic.pt'
+    # weight = r'/home/jiangxiaotian/workspace/3DEM/outputGNN/fold2val_10train_50e_fantastic.pt'
+    weight = r'/home/jiangxiaotian/workspace/3DEM/outputGNN/train0220/0222_sd7_50fineL1_Noneb943_GNNTr_e200Tr1_cuda:1_/last.pt'
 
     # 训练集和验证集数据加载
     # train_files = [plane + '_mie_val' for plane in trainplanes]
@@ -362,36 +500,43 @@ if __name__ == '__main__':
     planes_mse, mse_values = zip(*sorted_mse)
 
     bars = plt.bar(planes_mse, mse_values, label='MSE per Plane')
-    plt.axhline(allavemse_train, color='g', linestyle='--', label=f'Average Held-Out Val MSE ({allavemse_train:.4f})')
-    plt.axhline(allavemse_val, color='b', linestyle='--', label=f'Average OOD Val MSE ({allavemse_val:.4f})')
+    plt.axhline(allavemse_train, color='darkseagreen', linestyle='--', label=f'Ave Held-Out Val MSE ({allavemse_train:.4f})')
+    savefigdata(allavemse_train,img_path=os.path.join(save_dir, 'heldout_valmse.png'))
+    plt.axhline(allavemse_val, color='lightskyblue', linestyle='--', label=f'Ave OOD Val MSE ({allavemse_val:.4f})')
+    savefigdata(allavemse_val,img_path=os.path.join(save_dir, 'OOD_valmse.png'))
     plt.xlabel('Plane')
     plt.ylabel('MSE')
     plt.title('Validation MSE per Plane')
     legend_elements = [
-        Line2D([0], [0], color='g', lw=2, linestyle='--', label=f'Average Held-Out Val MSE ({allavemse_train:.4f})'),
-        Line2D([0], [0], color='b', lw=2, linestyle='--', label=f'Average OOD Val MSE ({allavemse_val:.4f})'),
-        Rectangle((0, 0), 0.9, 0.5, color='g', label='Train Plane'),  # 长方形表示训练集，宽1，高0.5
-        Rectangle((0, 0), 0.9, 0.5, color='b', label='Val Plane')  # 长方形表示验证集，宽1，高0.5
+        Line2D([0], [0], color='darkseagreen', lw=2, linestyle='--', label=f'Ave Held-Out Val MSE ({allavemse_train:.4f})'),
+        Line2D([0], [0], color='lightskyblue', lw=2, linestyle='--', label=f'Ave OOD Val MSE ({allavemse_val:.4f})'),
+        Rectangle((0, 0), 0.9, 0.5, color='darkseagreen', label='Train Plane'),  # 长方形表示训练集，宽1，高0.5
+        Rectangle((0, 0), 0.9, 0.5, color='lightskyblue', label='Val Plane')  # 长方形表示验证集，宽1，高0.5
     ]
     plt.legend(handles=legend_elements, loc='best')
     # plt.legend()
-    plt.xticks(rotation=45)
+    plt.xticks(rotation=80)
 
     # 为训练集和验证集的柱子分别着色
+    planes_msedata = []
     for i, bar in enumerate(bars):
         if planes_mse[i] in trainplanes:
-            bar.set_color('g')  # 训练集柱子为绿色
+            bar.set_color('darkseagreen')  # 训练集柱子为绿色
+            planes_msedata.append(('Train', planes_mse[i], mse_values[i]))  # 保存训练集数据
         else:
-            bar.set_color('b')  # 验证集柱子为蓝色
+            bar.set_color('lightskyblue')  # 验证集柱子为蓝色
+            planes_msedata.append(('Val', planes_mse[i], mse_values[i]))  # 保存验证集数据
 
         height = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width() / 2, height, f'{height:.4f}', ha='center', va='bottom', rotation=45)
+        plt.text(bar.get_x() + bar.get_width() / 2, height, f'{height:.4f}', ha='center', va='bottom', rotation=80)
 
     plt.ylim(0, max(mse_values) * 1.2)  # 增加 y 轴的上限，使文本有足够空间
     plt.tight_layout()
     plt.subplots_adjust(top=0.9)
     plt.savefig(valmsesavedir)
+    savefigdata(planes_msedata, img_path=valmsesavedir)#('Train/Val', 'Plane name', MSE value)
     plt.close()
+
 
     # 绘制 PSNR 的柱状图
     plt.clf()
@@ -399,36 +544,43 @@ if __name__ == '__main__':
     planes_psnr, psnr_values = zip(*sorted_psnr)
 
     bars = plt.bar(planes_psnr, psnr_values, label='PSNR per Plane')
-    plt.axhline(allavepsnr_train, color='g', linestyle='--', label=f'Average Held-Out Val PSNR ({allavepsnr_train:.2f})')
-    plt.axhline(allavepsnr_val, color='b', linestyle='--', label=f'Average OOD Val PSNR ({allavepsnr_val:.2f})')
+    plt.axhline(allavepsnr_train, color='darkseagreen', linestyle='--', label=f'Ave Held-Out Val PSNR ({allavepsnr_train:.2f})')
+    savefigdata(allavepsnr_train,img_path=os.path.join(save_dir, 'heldout_valpsnr.png'))
+    plt.axhline(allavepsnr_val, color='lightskyblue', linestyle='--', label=f'Ave OOD Val PSNR ({allavepsnr_val:.2f})')
+    savefigdata(allavepsnr_val,img_path=os.path.join(save_dir, 'OOD_valpsnr.png'))
     plt.xlabel('Plane')
     plt.ylabel('PSNR')
     plt.title('Validation PSNR per Plane')
     # plt.legend()
     legend_elements = [
-        Line2D([0], [0], color='g', lw=2, linestyle='--',label=f'Average Held-Out Val PSNR ({allavepsnr_train:.2f})'),
-        Line2D([0], [0], color='b', lw=2, linestyle='--',label=f'Average OOD Val PSNR ({allavepsnr_val:.2f})'),
-        Rectangle((0, 0), 0.9, 0.5, color='g', label='Train Plane'),  # 长方形表示训练集，宽1，高0.5
-        Rectangle((0, 0), 0.9, 0.5, color='b', label='Val Plane')  # 长方形表示验证集，宽1，高0.5
+        Line2D([0], [0], color='darkseagreen', lw=2, linestyle='--',label=f'Ave Held-Out Val PSNR ({allavepsnr_train:.2f})'),
+        Line2D([0], [0], color='lightskyblue', lw=2, linestyle='--',label=f'Ave OOD Val PSNR ({allavepsnr_val:.2f})'),
+        Rectangle((0, 0), 0.9, 0.5, color='darkseagreen', label='Train Plane'),  # 长方形表示训练集，宽1，高0.5
+        Rectangle((0, 0), 0.9, 0.5, color='lightskyblue', label='Val Plane')  # 长方形表示验证集，宽1，高0.5
     ]
     plt.legend(handles=legend_elements, loc='best')
-    plt.xticks(rotation=45)
+    plt.xticks(rotation=80)
 
     # 为训练集和验证集的柱子分别着色
+    planes_psnrdata = []
     for i, bar in enumerate(bars):
         if planes_psnr[i] in trainplanes:
-            bar.set_color('g')  # 训练集柱子为绿色
+            bar.set_color('darkseagreen')  # 训练集柱子为绿色
+            planes_psnrdata.append(('Train', planes_psnr[i], psnr_values[i]))  # 保存训练集数据
         else:
-            bar.set_color('b')  # 验证集柱子为蓝色
+            bar.set_color('lightskyblue')  # 验证集柱子为蓝色
+            planes_psnrdata.append(('Val', planes_psnr[i], psnr_values[i]))  # 保存验证集数据
 
         height = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width() / 2, height, f'{height:.2f}', ha='center', va='bottom', rotation=45)
+        plt.text(bar.get_x() + bar.get_width() / 2, height, f'{height:.2f}', ha='center', va='bottom', rotation=80)
 
     plt.ylim(0, max(psnr_values) * 1.2)
     plt.tight_layout()
     plt.subplots_adjust(top=0.9)
     plt.savefig(valpsnrsavedir)
+    savefigdata(planes_psnrdata, img_path=valpsnrsavedir)#('Train/Val', 'Plane name', MSE value)
     plt.close()
+
 
     # 绘制 SSIM 的柱状图
     plt.clf()
@@ -436,35 +588,42 @@ if __name__ == '__main__':
     planes_ssim, ssim_values = zip(*sorted_ssim)
 
     bars = plt.bar(planes_ssim, ssim_values, label='SSIM per Plane')
-    plt.axhline(allavessim_train, color='g', linestyle='--', label=f'Average Held-Out Val SSIM ({allavessim_train:.4f})')
-    plt.axhline(allavessim_val, color='b', linestyle='--', label=f'Average OOD Val SSIM ({allavessim_val:.4f})')
+    plt.axhline(allavessim_train, color='darkseagreen', linestyle='--', label=f'Ave Held-Out Val SSIM ({allavessim_train:.4f})')
+    plt.axhline(allavessim_val, color='lightskyblue', linestyle='--', label=f'Ave OOD Val SSIM ({allavessim_val:.4f})')
+    savefigdata(allavessim_train,img_path=os.path.join(save_dir, 'heldout_valssim.png'))
+    savefigdata(allavessim_val,img_path=os.path.join(save_dir, 'OOD_valssim.png'))
     plt.xlabel('Plane')
     plt.ylabel('SSIM')
     plt.title('Validation SSIM per Plane')
     # plt.legend()
     legend_elements = [
-        Line2D([0], [0], color='g', lw=2, linestyle='--',label=f'Average Held-Out Val SSIM ({allavessim_train:.4f})'),
-        Line2D([0], [0], color='b', lw=2, linestyle='--',label=f'Average OOD Val SSIM ({allavessim_val:.4f})'),
-        Rectangle((0, 0), 0.9, 0.5, color='g', label='Train Plane'),  # 长方形表示训练集，宽1，高0.5
-        Rectangle((0, 0), 0.9, 0.5, color='b', label='Val Plane')  # 长方形表示验证集，宽1，高0.5
+        Line2D([0], [0], color='darkseagreen', lw=2, linestyle='--',label=f'Ave Held-Out Val SSIM ({allavessim_train:.4f})'),
+        Line2D([0], [0], color='lightskyblue', lw=2, linestyle='--',label=f'Ave OOD Val SSIM ({allavessim_val:.4f})'),
+        Rectangle((0, 0), 0.9, 0.5, color='darkseagreen', label='Train Plane'),  # 长方形表示训练集，宽1，高0.5
+        Rectangle((0, 0), 0.9, 0.5, color='lightskyblue', label='Val Plane')  # 长方形表示验证集，宽1，高0.5
     ]
     plt.legend(handles=legend_elements, loc='best')
-    plt.xticks(rotation=45)
+    plt.xticks(rotation=80)
 
     # 为训练集和验证集的柱子分别着色
+    planes_ssimdata = []
     for i, bar in enumerate(bars):
         if planes_ssim[i] in trainplanes:
-            bar.set_color('g')  # 训练集柱子为绿色
+            bar.set_color('darkseagreen')  # 训练集柱子为绿色
+            planes_ssimdata.append(('Train', planes_ssim[i], ssim_values[i]))  # 保存训练集数据
         else:
-            bar.set_color('b')  # 验证集柱子为蓝色
+            bar.set_color('lightskyblue')  # 验证集柱子为蓝色
+            planes_ssimdata.append(('Val', planes_ssim[i], ssim_values[i]))  # 保存验证集数据
 
         height = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width() / 2, height, f'{height:.4f}', ha='center', va='bottom', rotation=45)
+        plt.text(bar.get_x() + bar.get_width() / 2, height, f'{height:.4f}', ha='center', va='bottom', rotation=80)
 
     plt.ylim(0, max(ssim_values) * 1.2)
     plt.tight_layout()
     plt.subplots_adjust(top=0.9)
     plt.savefig(valssimsavedir)
+    savefigdata(planes_ssimdata, img_path=valssimsavedir)#('Train/Val', 'Plane name', MSE value)
+
     plt.close()
 
     logger.info(f'总耗时：{(time.time()-starttime)/3600:.2f}小时或{(time.time()-starttime)/60:.2f}分钟')

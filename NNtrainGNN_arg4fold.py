@@ -114,8 +114,8 @@ batchsize = args.batch
 valbatch = args.valbatch
 loss_type = args.loss
 
-# datafolder = '/mnt/truenas_jiangxiaotian/allplanes/mie' #liang
-datafolder = '/mnt/SrvDataDisk/Datasets_3DEM/allplanes/mie'
+datafolder = '/mnt/truenas_jiangxiaotian/allplanes/mie' #liang
+# datafolder = '/mnt/SrvDataDisk/Datasets_3DEM/allplanes/mie'
 
 # Fold1 = ['b871_mie_10train','bb7d_mie_10train','b827_mie_10train','b905_mie_10train','bbc6_mie_10train']
 # Fold2 = ['b80b_mie_10train','ba0f_mie_10train','b7c1_mie_10train','b9e6_mie_10train','bb7c_mie_10train']

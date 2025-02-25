@@ -108,9 +108,9 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
 
     mu, std = norm.fit(mse_list)
     # x = np.linspace(-5, 15, 1000)
-    x = np.linspace(min(mse_list)-0.5, max(mse_list)+0.5, 1000)
+    x = np.linspace(min(mse_list), max(mse_list), 1000)
     plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
-    plt.xlim(-0.05, max(mse_list)+max(mse_list)/5)  # 限制横坐标范围
+    # plt.xlim(-0.05, max(mse_list)+max(mse_list)/5)  # 限制横坐标范围
     plt.xlabel('MSE')
     # plt.ylabel('Probability of samples')
     plt.ylabel('Probability of samples (%)')
@@ -127,7 +127,7 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
     plt.gca().yaxis.set_major_formatter(fomatter)
     mu, std = norm.fit(psnr_list)
     # x = np.linspace(15,45, 1000)
-    x = np.linspace(min(psnr_list)-2, max(psnr_list)+2, 1000)
+    x = np.linspace(min(psnr_list), max(psnr_list), 1000)
     plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
     # plt.xlim(-5, 15)  # 限制横坐标范围
     plt.xlabel('PSNR')
@@ -145,7 +145,7 @@ def plotstatistic2(psnr_list, ssim_list, mse_list, statisticdir):
     # plt.gca().yaxis.set_major_formatter(fomatter)
     mu, std = norm.fit(ssim_list)
     # x = np.linspace(0.6,1.1, 1000)
-    x = np.linspace(min(ssim_list)-0.05, max(ssim_list)+0.05, 1000)
+    x = np.linspace(min(ssim_list), max(ssim_list), 1000)
     plt.plot(x, norm.pdf(x, mu, std), 'r-', linewidth=2, label='Normal fit')
     # plt.xlim(0.55, 1.1)  # 限制横坐标范围
     plt.xlabel('SSIM')
